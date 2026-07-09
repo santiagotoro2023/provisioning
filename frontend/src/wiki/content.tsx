@@ -526,13 +526,16 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   would start landing on it instead). The VM's boot order also auto-retries on its own
                   (ESXi's <Code>bootRetryEnabled</Code>) if the whole boot sequence fails, since a freshly
                   attached CD-ROM isn't always connected the instant the VM powers on.</>,
-                <>Even with a correctly delivered floppy, that language/time/keyboard screen still shows
-                  up unconditionally on some Windows builds, its values already correct, just needing a
-                  confirmation click. DeployCore handles this the same way as the boot prompt above: a
-                  second, sparser round of synthetic Enter keypresses (one every 8 seconds for about two
-                  minutes), timed for whenever Setup's GUI actually finishes loading, which varies a lot
-                  more than the boot prompt's own timing, so the whole install stays hands-off instead of
-                  stalling there.</>,
+                <>Even with a correctly delivered floppy, that language/time/keyboard screen can still
+                  show up: without an explicit <Code>UILanguageFallback</Code>, Setup has nothing to fall
+                  back to if the requested locale isn't a valid Setup UI language on that specific media,
+                  and shows the interactive picker rather than guessing (every known-working real-world
+                  answer file sets this, DeployCore's does too now). As a second line of defense in case
+                  that screen still shows up for some other reason, DeployCore also sends a second,
+                  sparser round of synthetic Enter keypresses after the boot prompt above (one every 8
+                  seconds for about two minutes, timed for whenever Setup's GUI actually finishes loading,
+                  which varies a lot more than the boot prompt's own timing), so the install stays
+                  hands-off either way.</>,
                 <>The guest calls back to DeployCore once Windows Setup finishes (a single-use token per
                   deployment), which is what advances the state from booting to installing_os.</>,
                 <>Post-install runs over WinRM once the guest reports an IP: apply static network config

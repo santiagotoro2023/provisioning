@@ -157,3 +157,19 @@ def test_special_characters_in_password_are_escaped_not_corrupted():
 
     password = root.xpath("string(//u:AdministratorPassword/u:Value)", namespaces=NS)
     assert password == "P&ssw0rd<1>!"
+
+
+def test_ui_language_has_a_fallback():
+    """Without UILanguageFallback, Setup has nothing to fall back to if
+    the requested locale isn't a valid Setup UI language on the specific
+    install media, and shows the interactive language/time/keyboard
+    picker instead of guessing, exactly the screen this exists to
+    suppress (every known-working real-world answer file sets it)."""
+    template = _make_template(locale="de-CH", keyboard_layout="de-CH")
+    root = etree.fromstring(render_autounattend(_make_deployment(), template, _basic_disk_layout()).encode())
+
+    winpe_intl = root.xpath(
+        "//u:component[@name='Microsoft-Windows-International-Core-WinPE']", namespaces=NS
+    )[0]
+    assert winpe_intl.xpath("string(u:UILanguageFallback)", namespaces=NS) == "de-CH"
+    assert winpe_intl.xpath("string(u:SetupUILanguage/u:UILanguage)", namespaces=NS) == "de-CH"
