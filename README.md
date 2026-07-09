@@ -346,13 +346,17 @@ org-scoped copy.
   zeroed), network name and network adapter type (VMXNET3, E1000, or
   E1000E), optional VLAN ID, locale/timezone/keyboard layout as Windows
   identifiers not IETF/IANA ones (new templates default to `de-DE`/
-  `W. Europe Standard Time`/`de-CH`), local administrator username (default
-  `svcadmin`, can't be `Administrator`/`Guest`/`DefaultAccount`/
-  `WDAGUtilityAccount`, all reserved) and password (write-only). This
-  account is created fresh on every deployment and is the one actually
-  usable afterward: the built-in Administrator account gets disabled
-  within seconds of first boot (see the deployment pipeline section below),
-  optional domain join (FQDN, join account, join
+  `W. Europe Standard Time`/`de-CH`), a local administrator password
+  (write-only), and an off-by-default **custom admin account** toggle:
+  off (default) uses the built-in Administrator account as-is with that
+  password; on adds a username field (default `svcadmin`, can't be
+  `Administrator`/`Guest`/`DefaultAccount`/`WDAGUtilityAccount`, all
+  reserved) and creates that as a genuinely new local account instead,
+  disabling the built-in Administrator during Setup (see the deployment
+  pipeline section below). The API enforces this regardless of what a
+  caller sends: `local_admin_username` is always forced back to
+  `"Administrator"` server-side whenever the toggle is off, optional
+  domain join (FQDN, join account, join
   credential [write-only], target OU, and timing, `answer_file` bakes the
   join into the unattended install, `post_install` joins afterward over
   WinRM),
@@ -424,21 +428,24 @@ pending → creating_vm → booting → installing_os → post_install → confi
   has a long-standing upstream quirk on some locales where `InputLocale`
   isn't honored on that one specific screen even though the rest of the
   answer file (including the specialize-pass locale, see below) applies
-  correctly. The guest's `FirstLogonCommands`, in order: enable WinRM and
-  open a firewall rule for it; set `LocalAccountTokenFilterPolicy=1` (by
-  default Windows' UAC remote restriction only exempts the actual built-in
-  Administrator (RID 500) from a filtered, non-elevated token on network
-  logons, without this every WinRM command DeployCore runs post-install
-  would silently fail for the template's custom admin account even though
-  it's in Administrators); call back to `/api/callback/{token}`
-  (single-use per-deployment token), which is what advances
-  `booting → installing_os`; then disable the built-in Administrator
-  account, deliberately last, so a guest-side quirk from disabling the
-  very account `FirstLogonCommands` is running as can never prevent the
-  callback above from firing. The custom local admin account itself
-  (`template.local_admin_username`) is created earlier, declaratively, via
-  a `LocalAccounts` entry in the same oobeSystem `UserAccounts` block that
-  sets the built-in account's password, not a FirstLogonCommand. The
+  correctly. The guest's `FirstLogonCommands` always: enable WinRM and open
+  a firewall rule for it; call back to `/api/callback/{token}` (single-use
+  per-deployment token), which is what advances `booting → installing_os`.
+  If `template.custom_admin_enabled` is on (off by default), two more
+  commands render: `LocalAccountTokenFilterPolicy=1` right after enabling
+  WinRM (by default Windows' UAC remote restriction only exempts the
+  actual built-in Administrator (RID 500) from a filtered, non-elevated
+  token on network logons, without this every WinRM command DeployCore
+  runs post-install would silently fail for the template's custom admin
+  account even though it's in Administrators), and disabling the built-in
+  Administrator account, deliberately last, after the callback, so a
+  guest-side quirk from disabling the very account `FirstLogonCommands` is
+  running as can never prevent that callback from firing. The custom local
+  admin account itself (`template.local_admin_username`) is created
+  earlier, declaratively, via a `LocalAccounts` entry in the same
+  oobeSystem `UserAccounts` block that always sets the built-in account's
+  password too (with the toggle off, that's the only account that gets
+  created at all, `local_admin_username` is just `"Administrator"`). The
   callback landing is also the first point DeployCore can be sure Setup is
   done with the install media for good (post-install runs entirely over
   WinRM from here on): `wait_for_callback` ejects the Windows/VirtIO ISOs

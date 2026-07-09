@@ -13,6 +13,7 @@ from app.models.template import DeploymentTemplate
 from app.models.user import Role, User
 from app.schemas.deployment import AutounattendPreview, DeploymentPreviewRequest
 from app.schemas.template import (
+    RESERVED_LOCAL_ACCOUNT_NAMES,
     DeploymentTemplateCreate,
     DeploymentTemplateExport,
     DeploymentTemplateImport,
@@ -26,6 +27,28 @@ from app.services import audit
 from app.services.template_render import render_autounattend
 
 router = APIRouter(tags=["templates"])
+
+
+def _resolve_local_admin_username(custom_admin_enabled: bool, username: str | None) -> str:
+    """The built-in Administrator account is used unless the custom-admin
+    toggle is on, in which case a fresh local account is created and the
+    built-in one disabled during Setup (see autounattend_base.xml.j2 and
+    _first_logon_commands.xml.j2). Forcing that here keeps
+    DeploymentTemplate.local_admin_username the single source of truth for
+    "which account should WinRM authenticate as" everywhere else in the
+    codebase, downstream code never has to branch on custom_admin_enabled
+    itself."""
+    if not custom_admin_enabled:
+        return "Administrator"
+    username = (username or "").strip()
+    if not username:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "local admin username cannot be blank when custom admin is enabled")
+    if username.lower() in RESERVED_LOCAL_ACCOUNT_NAMES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f'"{username}" is a reserved Windows account name, choose a different local admin username',
+        )
+    return username
 
 
 @router.get(
@@ -58,6 +81,7 @@ async def create_template(
     data.pop("local_admin_password")
     data.pop("domain_join_credential")
     data["post_install_scripts"] = [s.model_dump() for s in body.post_install_scripts]
+    data["local_admin_username"] = _resolve_local_admin_username(data["custom_admin_enabled"], data["local_admin_username"])
     template = DeploymentTemplate(org_id=org_id, **data)
     template.local_admin_password = body.local_admin_password
     if body.domain_join_credential:
@@ -113,6 +137,14 @@ async def update_template(
         template.local_admin_password = local_admin_password
     if domain_join_credential:
         template.domain_join_credential = domain_join_credential
+    # Evaluated against the FINAL merged state (this patch's values where
+    # provided, the existing row's otherwise), not just what was submitted:
+    # e.g. toggling custom_admin_enabled on in a patch that doesn't also
+    # touch local_admin_username must still validate/normalize against
+    # whatever username the row already has.
+    template.local_admin_username = _resolve_local_admin_username(
+        template.custom_admin_enabled, template.local_admin_username
+    )
     audit.record(
         db, action="template.update", target_type="template", org_id=org_id,
         user_id=current_user.id, target_id=template.id, detail={"fields": list(updates.keys())},
@@ -175,6 +207,7 @@ async def clone_template(
         locale=source.locale,
         timezone=source.timezone,
         keyboard_layout=source.keyboard_layout,
+        custom_admin_enabled=source.custom_admin_enabled,
         local_admin_username=source.local_admin_username,
         local_admin_password_encrypted=source.local_admin_password_encrypted,
         domain_join_enabled=source.domain_join_enabled,
@@ -234,6 +267,7 @@ async def export_template(
         locale=template.locale,
         timezone=template.timezone,
         keyboard_layout=template.keyboard_layout,
+        custom_admin_enabled=template.custom_admin_enabled,
         local_admin_username=template.local_admin_username,
         domain_join_enabled=template.domain_join_enabled,
         domain_fqdn=template.domain_fqdn,
@@ -282,7 +316,8 @@ async def import_template(
         locale=body.locale,
         timezone=body.timezone,
         keyboard_layout=body.keyboard_layout,
-        local_admin_username=body.local_admin_username,
+        custom_admin_enabled=body.custom_admin_enabled,
+        local_admin_username=_resolve_local_admin_username(body.custom_admin_enabled, body.local_admin_username),
         domain_join_enabled=body.domain_join_enabled,
         domain_fqdn=body.domain_fqdn,
         domain_join_account=body.domain_join_account,

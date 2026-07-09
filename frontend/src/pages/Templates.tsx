@@ -244,7 +244,13 @@ function TemplateForm({
   const [locale, setLocale] = useState(existing?.locale ?? "de-DE");
   const [timezone, setTimezone] = useState(existing?.timezone ?? "W. Europe Standard Time");
   const [keyboardLayout, setKeyboardLayout] = useState(existing?.keyboard_layout ?? "de-CH");
-  const [localAdminUsername, setLocalAdminUsername] = useState(existing?.local_admin_username ?? "svcadmin");
+  const [customAdminEnabled, setCustomAdminEnabled] = useState(existing?.custom_admin_enabled ?? false);
+  // When custom admin is off, the backend always stores "Administrator"
+  // regardless of what was last typed here, that's not a useful starting
+  // point if the operator flips the toggle on, offer the real default instead.
+  const [localAdminUsername, setLocalAdminUsername] = useState(
+    existing && existing.local_admin_username !== "Administrator" ? existing.local_admin_username : "svcadmin"
+  );
   const [localAdminPassword, setLocalAdminPassword] = useState("");
   const [domainJoinEnabled, setDomainJoinEnabled] = useState(existing?.domain_join_enabled ?? false);
   const [domainFqdn, setDomainFqdn] = useState(existing?.domain_fqdn ?? "");
@@ -260,11 +266,13 @@ function TemplateForm({
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!name || !diskLayoutId || !networkName || !localAdminUsername || (!isEdit && !localAdminPassword)) {
-      setError("Name, disk layout, network name, a local admin username, and a local administrator password are required.");
+    if (!name || !diskLayoutId || !networkName || (customAdminEnabled && !localAdminUsername) || (!isEdit && !localAdminPassword)) {
+      setError(
+        `Name, disk layout, network name, ${customAdminEnabled ? "a local admin username, " : ""}and a local administrator password are required.`
+      );
       return;
     }
-    if (localAdminUsername.trim().toLowerCase() === "administrator") {
+    if (customAdminEnabled && localAdminUsername.trim().toLowerCase() === "administrator") {
       setError('Local admin username can\'t be "Administrator", DeployCore disables that built-in account, pick a different name.');
       return;
     }
@@ -283,6 +291,7 @@ function TemplateForm({
       locale,
       timezone,
       keyboard_layout: keyboardLayout,
+      custom_admin_enabled: customAdminEnabled,
       local_admin_username: localAdminUsername,
       local_admin_password: localAdminPassword,
       domain_join_enabled: domainJoinEnabled,
@@ -409,22 +418,29 @@ function TemplateForm({
           </div>
         </div>
 
+        <label className="mb-1 flex items-center gap-2 text-xs font-medium text-neutral-600 dark:text-neutral-400">
+          <input type="checkbox" checked={customAdminEnabled} onChange={(e) => setCustomAdminEnabled(e.target.checked)} />
+          Custom local administrator account
+        </label>
         <p className="mb-1 text-xs text-neutral-400">
-          Created as a new local account and added to Administrators; the built-in Administrator account is
-          disabled within seconds of first boot, so this is the account that's actually usable afterward.
+          {customAdminEnabled
+            ? "Created as a new local account and added to Administrators; the built-in Administrator account is disabled within seconds of first boot, so this is the account that's actually usable afterward."
+            : "Off (default): the built-in Administrator account is used as-is, just with the password below. Turn this on for a differently-named admin account instead, with the built-in Administrator disabled automatically."}
         </p>
-        <div className="mb-3 grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Local admin username</label>
-            <input
-              className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
-              value={localAdminUsername}
-              onChange={(e) => setLocalAdminUsername(e.target.value)}
-            />
-          </div>
+        <div className={`mb-3 grid gap-3 ${customAdminEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
+          {customAdminEnabled && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Local admin username</label>
+              <input
+                className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
+                value={localAdminUsername}
+                onChange={(e) => setLocalAdminUsername(e.target.value)}
+              />
+            </div>
+          )}
           <div>
             <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
-              Local admin password{isEdit && " (leave blank to keep unchanged)"}
+              {customAdminEnabled ? "Local admin password" : "Administrator password"}{isEdit && " (leave blank to keep unchanged)"}
             </label>
             <input
               type="password"

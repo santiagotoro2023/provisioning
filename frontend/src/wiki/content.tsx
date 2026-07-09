@@ -460,13 +460,14 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   IETF/IANA ones (new templates default to <Code>de-DE</Code>/<Code>W. Europe Standard
                   Time</Code>/<Code>de-CH</Code>; see "Unattended Windows Setup, in depth" for how keyboard
                   layout resolves to an exact physical layout rather than just a language).</>,
-                <>Local administrator username and password. The username default to <Code>svcadmin</Code>{" "}
-                  and can be anything except a reserved Windows account name (<Code>Administrator</Code>,{" "}
-                  <Code>Guest</Code>, <Code>DefaultAccount</Code>, <Code>WDAGUtilityAccount</Code>). Password
-                  is write-only, never shown again after saving. This creates a genuinely new local account
-                  on every deployment (not a rename of the built-in one) and is the account actually usable
-                  afterward, DeployCore disables the built-in Administrator account within seconds of first
-                  boot, see "Unattended Windows Setup, in depth."</>,
+                <>Local administrator password, always write-only, never shown again after saving. Off by
+                  default, an optional <strong>custom admin account</strong> toggle: off just sets that
+                  password on the built-in Administrator account, no other change. On adds a username field
+                  (default <Code>svcadmin</Code>, can't be a reserved Windows account name, i.e.{" "}
+                  <Code>Administrator</Code>, <Code>Guest</Code>, <Code>DefaultAccount</Code>,{" "}
+                  <Code>WDAGUtilityAccount</Code>) and creates that as a genuinely new local account instead,
+                  the built-in Administrator account gets disabled within seconds of first boot in that
+                  case, see "Unattended Windows Setup, in depth."</>,
                 <>Optional domain join: FQDN, join account, join credential (write-only), target OU, and
                   timing, either <Code>answer_file</Code> (baked into the unattended install) or{" "}
                   <Code>post_install</Code> (joined afterward over WinRM).</>,
@@ -681,31 +682,37 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               (<Code>HideEULAPage</Code>, <Code>HideLocalAccountScreen</Code>,{" "}
               <Code>HideOnlineAccountScreens</Code>, <Code>HideWirelessSetupInOOBE</Code>,{" "}
               <Code>SkipMachineOOBE</Code>, <Code>SkipUserOOBE</Code>) suppresses every interactive OOBE
-              screen unconditionally, there's nothing to click through after Setup itself finishes. Setup
-              still requires the built-in Administrator account to have a password at this point
-              (<Code>AdministratorPassword</Code>), so it gets one, but a separate, declarative{" "}
-              <Code>LocalAccounts</Code> entry in the same <Code>UserAccounts</Code> block creates a
-              genuinely new local account (the template's own username/password, a member of{" "}
-              <Code>Administrators</Code>) at the same time, this is the account meant to survive.
+              screen unconditionally, there's nothing to click through after Setup itself finishes,
+              regardless of the custom admin toggle below. Setup always requires the built-in
+              Administrator account to have a password at this point (<Code>AdministratorPassword</Code>),
+              so it always gets one.
             </P>
             <P>
-              Two <Code>FirstLogonCommands</Code> handle the built-in account: first,
-              <Code>LocalAccountTokenFilterPolicy</Code> gets set to 1 in the registry, without it Windows'
-              UAC remote restriction only exempts the true built-in Administrator (RID 500) from a
-              filtered, non-elevated token on network logons, which would silently break every WinRM
-              command DeployCore runs post-install for the custom account despite it being in
-              Administrators. Second, after the callback to DeployCore has already fired (deliberately
-              last, so a guest-side quirk from disabling the very account <Code>FirstLogonCommands</Code>{" "}
-              is running as can never risk that callback), <Code>Disable-LocalUser -Name 'Administrator'</Code>{" "}
-              deactivates the built-in account for good.
+              A template's <strong>custom admin account</strong> toggle (Templates page, off by default)
+              controls what happens beyond that. Off: nothing else, the built-in Administrator account with
+              that password is the account the deployed machine actually has. On: a separate, declarative{" "}
+              <Code>LocalAccounts</Code> entry in the same <Code>UserAccounts</Code> block additionally
+              creates a genuinely new local account (the template's own username/password, a member of{" "}
+              <Code>Administrators</Code>), and two more <Code>FirstLogonCommands</Code> render to make it
+              the account actually meant to survive: first, <Code>LocalAccountTokenFilterPolicy</Code> gets
+              set to 1 in the registry, without it Windows' UAC remote restriction only exempts the true
+              built-in Administrator (RID 500) from a filtered, non-elevated token on network logons, which
+              would silently break every WinRM command DeployCore runs post-install for the custom account
+              despite it being in Administrators. Second, after the callback to DeployCore has already
+              fired (deliberately last, so a guest-side quirk from disabling the very account{" "}
+              <Code>FirstLogonCommands</Code> is running as can never risk that callback),{" "}
+              <Code>Disable-LocalUser -Name 'Administrator'</Code> deactivates the built-in account for
+              good. The API enforces the pairing server-side regardless of what a client sends:{" "}
+              <Code>local_admin_username</Code> is always forced back to <Code>"Administrator"</Code> when
+              the toggle is off, and rejected if it's a reserved Windows account name when the toggle is on.
             </P>
             <P>
               <strong>Cleaning up after Setup is done.</strong> The guest's <Code>FirstLogonCommands</Code>{" "}
               call back to DeployCore only once Windows Setup has fully finished, OOBE included, and the
               guest has booted into the installed OS for the first time, that's the one point it's safe to
               say the install media is no longer needed by anything (post-install runs entirely over WinRM
-              afterward, authenticated as the custom local admin account, not the now-disabled built-in
-              one). That callback is what DeployCore waits for before it ejects the Windows and
+              afterward, authenticated as <Code>local_admin_username</Code>, whichever account that
+              actually is). That callback is what DeployCore waits for before it ejects the Windows and
               VirtIO ISOs (drive kept, just emptied, matching how you'd eject a real disc), removes the
               floppy device entirely (it only ever had one job), and deletes the per-deployment answer-file
               floppy image from the datastore. All of this is best-effort: a failure here is logged but

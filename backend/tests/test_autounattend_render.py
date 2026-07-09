@@ -19,7 +19,8 @@ def _make_template(**overrides) -> DeploymentTemplate:
         ram_mb=4096,
         disk_size_gb=80,
         network_name="VM Network",
-        local_admin_username="svcadmin",
+        custom_admin_enabled=False,
+        local_admin_username="Administrator",
         domain_join_enabled=False,
         domain_join_timing=DomainJoinTiming.ANSWER_FILE,
         windows_features=[],
@@ -176,12 +177,29 @@ def test_ui_language_has_a_fallback():
     assert winpe_intl.xpath("string(u:SetupUILanguage/u:UILanguage)", namespaces=NS) == "de-CH"
 
 
+def test_custom_admin_disabled_by_default_keeps_builtin_administrator():
+    """Off by default: no LocalAccounts entry, the built-in Administrator
+    keeps its password and is never touched by FirstLogonCommands, and
+    only the two baseline commands (enable WinRM, callback) render."""
+    template = _make_template()
+    root = etree.fromstring(render_autounattend(_make_deployment(), template, _basic_disk_layout()).encode())
+
+    assert root.xpath("//u:UserAccounts/u:LocalAccounts", namespaces=NS) == []
+    assert root.xpath("string(//u:AdministratorPassword/u:Value)", namespaces=NS) == "P@ssw0rd1!"
+
+    commands = root.xpath("//u:FirstLogonCommands/u:SynchronousCommand", namespaces=NS)
+    command_lines = " ".join(c.xpath("string(u:CommandLine)", namespaces=NS) for c in commands)
+    assert len(commands) == 2
+    assert "LocalAccountTokenFilterPolicy" not in command_lines
+    assert "Disable-LocalUser" not in command_lines
+
+
 def test_local_accounts_creates_custom_admin_and_still_sets_builtin_password():
-    """The built-in Administrator gets a password too (Setup needs one to
-    exist momentarily) but _first_logon_commands.xml.j2 disables it within
-    seconds of first boot; the LocalAccounts-created account is the one
-    meant to survive."""
-    template = _make_template(local_admin_username="svcwinadmin")
+    """With the toggle on: the built-in Administrator gets a password too
+    (Setup needs one to exist momentarily) but _first_logon_commands.xml.j2
+    disables it within seconds of first boot; the LocalAccounts-created
+    account is the one meant to survive."""
+    template = _make_template(custom_admin_enabled=True, local_admin_username="svcwinadmin")
     root = etree.fromstring(render_autounattend(_make_deployment(), template, _basic_disk_layout()).encode())
 
     local_account = root.xpath("//u:UserAccounts/u:LocalAccounts/u:LocalAccount", namespaces=NS)
@@ -191,6 +209,12 @@ def test_local_accounts_creates_custom_admin_and_still_sets_builtin_password():
     assert local_account[0].xpath("string(u:Password/u:Value)", namespaces=NS) == "P@ssw0rd1!"
 
     assert root.xpath("string(//u:AdministratorPassword/u:Value)", namespaces=NS) == "P@ssw0rd1!"
+
+    commands = root.xpath("//u:FirstLogonCommands/u:SynchronousCommand", namespaces=NS)
+    command_lines = " ".join(c.xpath("string(u:CommandLine)", namespaces=NS) for c in commands)
+    assert len(commands) == 4
+    assert "LocalAccountTokenFilterPolicy" in command_lines
+    assert "Disable-LocalUser -Name 'Administrator'" in command_lines
 
 
 def test_input_locale_resolves_bare_locale_tag_to_named_keyboard():

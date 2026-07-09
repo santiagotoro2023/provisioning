@@ -1,28 +1,18 @@
 import uuid
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 
 from app.models.template import DiskProvisioning, DomainJoinTiming, NetworkAdapterType
 from app.schemas.disk_layout import DiskLayoutJson
 
 # Windows reserves these local account names (the built-in Administrator
 # and Guest accounts, plus the two accounts newer Windows 10/11 SKUs also
-# ship); DeployCore actively disables the built-in Administrator, so a
-# custom admin account named "Administrator" would collide with the very
-# account being renamed away from.
-_RESERVED_LOCAL_ACCOUNT_NAMES = {"administrator", "guest", "defaultaccount", "wdagutilityaccount"}
-
-
-def _check_local_admin_username(cls, value: str) -> str:
-    """Shared by both Create (required field) and Update (optional field,
-    which wraps this itself and skips the call for None) below, matching
-    Pydantic v2's documented pattern for reusing one validator function
-    across models: https://docs.pydantic.dev/latest/concepts/validators/#reusable-validators"""
-    if value.strip().lower() in _RESERVED_LOCAL_ACCOUNT_NAMES:
-        raise ValueError(f'"{value}" is a reserved Windows account name, choose a different local admin username')
-    if not value.strip():
-        raise ValueError("local admin username cannot be blank")
-    return value
+# ship); DeployCore actively disables the built-in Administrator when the
+# custom-admin toggle is on, so a custom account named "Administrator"
+# would collide with the very account being disabled. Enforced in
+# api/routes/templates.py, not here: whether it applies at all depends on
+# custom_admin_enabled, a sibling field a single-field validator can't see.
+RESERVED_LOCAL_ACCOUNT_NAMES = {"administrator", "guest", "defaultaccount", "wdagutilityaccount"}
 
 
 class PostInstallScript(BaseModel):
@@ -45,6 +35,7 @@ class DeploymentTemplateCreate(BaseModel):
     locale: str = "de-DE"
     timezone: str = "W. Europe Standard Time"
     keyboard_layout: str = "de-CH"
+    custom_admin_enabled: bool = False
     local_admin_username: str = "svcadmin"
     local_admin_password: str
     domain_join_enabled: bool = False
@@ -55,8 +46,6 @@ class DeploymentTemplateCreate(BaseModel):
     domain_join_timing: DomainJoinTiming = DomainJoinTiming.ANSWER_FILE
     windows_features: list[str] = []
     post_install_scripts: list[PostInstallScript] = []
-
-    _validate_local_admin_username = field_validator("local_admin_username")(_check_local_admin_username)
 
 
 class DeploymentTemplateUpdate(BaseModel):
@@ -74,6 +63,7 @@ class DeploymentTemplateUpdate(BaseModel):
     locale: str | None = None
     timezone: str | None = None
     keyboard_layout: str | None = None
+    custom_admin_enabled: bool | None = None
     local_admin_username: str | None = None
     local_admin_password: str | None = None
     domain_join_enabled: bool | None = None
@@ -84,11 +74,6 @@ class DeploymentTemplateUpdate(BaseModel):
     domain_join_timing: DomainJoinTiming | None = None
     windows_features: list[str] | None = None
     post_install_scripts: list[PostInstallScript] | None = None
-
-    @field_validator("local_admin_username")
-    @classmethod
-    def _validate_local_admin_username(cls, value: str | None) -> str | None:
-        return value if value is None else _check_local_admin_username(cls, value)
 
 
 class DeploymentTemplateRead(BaseModel):
@@ -110,6 +95,7 @@ class DeploymentTemplateRead(BaseModel):
     locale: str
     timezone: str
     keyboard_layout: str
+    custom_admin_enabled: bool
     local_admin_username: str
     domain_join_enabled: bool
     domain_fqdn: str | None
@@ -150,6 +136,7 @@ class DeploymentTemplateExport(BaseModel):
     locale: str
     timezone: str
     keyboard_layout: str
+    custom_admin_enabled: bool
     local_admin_username: str
     domain_join_enabled: bool
     domain_fqdn: str | None
@@ -174,6 +161,7 @@ class DeploymentTemplateImport(BaseModel):
     locale: str = "de-DE"
     timezone: str = "W. Europe Standard Time"
     keyboard_layout: str = "de-CH"
+    custom_admin_enabled: bool = False
     local_admin_username: str = "svcadmin"
     domain_join_enabled: bool = False
     domain_fqdn: str | None = None
@@ -182,5 +170,3 @@ class DeploymentTemplateImport(BaseModel):
     domain_join_timing: DomainJoinTiming = DomainJoinTiming.ANSWER_FILE
     windows_features: list[str] = []
     post_install_scripts: list[PostInstallScript] = []
-
-    _validate_local_admin_username = field_validator("local_admin_username")(_check_local_admin_username)

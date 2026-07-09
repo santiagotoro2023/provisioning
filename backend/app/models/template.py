@@ -60,11 +60,16 @@ class DeploymentTemplate(UUIDPKMixin, TimestampMixin, Base):
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
     keyboard_layout: Mapped[str] = mapped_column(String(20), default="en-US", nullable=False)
 
-    # not "Administrator": DeployCore creates this as a new local account
-    # and disables the built-in Administrator account during Setup, see
-    # autounattend_base.xml.j2's LocalAccounts block and
-    # _first_logon_commands.xml.j2.
-    local_admin_username: Mapped[str] = mapped_column(String(64), default="svcadmin", nullable=False)
+    # Off by default: the built-in Administrator account is used as-is. On:
+    # a new local account (local_admin_username) is created and added to
+    # Administrators, and the built-in Administrator is disabled during
+    # Setup, see autounattend_base.xml.j2's LocalAccounts block and
+    # _first_logon_commands.xml.j2. The route layer (templates.py) is what
+    # keeps local_admin_username forced to "Administrator" whenever this is
+    # False, so every WinRM call downstream can just always use
+    # local_admin_username without needing to know about this flag itself.
+    custom_admin_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    local_admin_username: Mapped[str] = mapped_column(String(64), default="Administrator", nullable=False)
     local_admin_password_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
 
     domain_join_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
