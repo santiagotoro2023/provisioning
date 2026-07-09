@@ -7,13 +7,36 @@ from app.db import SessionLocal
 from app.hypervisors import get_driver
 from app.models.deployment import Deployment, DeploymentHealthCheck, DeploymentState, HealthStatus
 from app.models.hypervisor import HypervisorHost
-from app.models.template import DeploymentTemplate
 from app.services import notifications, settings_resolver, webhooks
 from app.services.deployment_service import log
-from app.winrm.client import WinRMClient
 
 TERMINAL_STATES = (DeploymentState.COMPLETED, DeploymentState.FAILED)
 HEALTH_HISTORY_RETENTION_DAYS = 30
+
+# provision.py's last post-install step closes WinRM for good (stops the
+# service, drops the firewall rule), so a completed deployment can no
+# longer be reachability-checked over WinRM even if credentials are
+# available. RDP (3389) is on by default on every Windows Server SKU and
+# doesn't need anything guest-side re-opened for DeployCore to probe it, a
+# plain TCP connect is enough: it doesn't prove WinRM/PowerShell remoting
+# still works (nothing does, on purpose), only that the guest OS is up and
+# reachable on the network, the same thing "healthy" meant before, just
+# without needing standing remote-admin access to check it.
+HEALTH_CHECK_PORT = 3389
+HEALTH_CHECK_TIMEOUT_SECONDS = 5
+
+
+async def _tcp_reachable(ip: str, port: int, timeout: float) -> bool:
+    try:
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
+    except (OSError, asyncio.TimeoutError):
+        return False
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except OSError:
+        pass
+    return True
 
 
 async def sweep_stale_deployments(ctx) -> None:
@@ -56,14 +79,12 @@ async def check_deployment_health(ctx) -> None:
         for deployment in deployments:
             previous_status = deployment.last_health_status
             host = await db.get(HypervisorHost, deployment.hypervisor_host_id)
-            template = await db.get(DeploymentTemplate, deployment.template_id)
             new_status = HealthStatus.UNKNOWN
             try:
                 driver = get_driver(host)
                 ip = deployment.static_ip if deployment.static_ip else await driver.get_guest_ip(deployment.vm_moref)
                 if ip:
-                    client = WinRMClient(ip, "Administrator", template.local_admin_password)
-                    reachable = await asyncio.to_thread(client.is_reachable)
+                    reachable = await _tcp_reachable(ip, HEALTH_CHECK_PORT, HEALTH_CHECK_TIMEOUT_SECONDS)
                     new_status = HealthStatus.HEALTHY if reachable else HealthStatus.UNREACHABLE
                 else:
                     new_status = HealthStatus.UNREACHABLE

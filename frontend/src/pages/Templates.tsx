@@ -244,6 +244,7 @@ function TemplateForm({
   const [locale, setLocale] = useState(existing?.locale ?? "de-DE");
   const [timezone, setTimezone] = useState(existing?.timezone ?? "W. Europe Standard Time");
   const [keyboardLayout, setKeyboardLayout] = useState(existing?.keyboard_layout ?? "de-CH");
+  const [localAdminUsername, setLocalAdminUsername] = useState(existing?.local_admin_username ?? "svcadmin");
   const [localAdminPassword, setLocalAdminPassword] = useState("");
   const [domainJoinEnabled, setDomainJoinEnabled] = useState(existing?.domain_join_enabled ?? false);
   const [domainFqdn, setDomainFqdn] = useState(existing?.domain_fqdn ?? "");
@@ -259,8 +260,12 @@ function TemplateForm({
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!name || !diskLayoutId || !networkName || (!isEdit && !localAdminPassword)) {
-      setError("Name, disk layout, network name, and a local administrator password are required.");
+    if (!name || !diskLayoutId || !networkName || !localAdminUsername || (!isEdit && !localAdminPassword)) {
+      setError("Name, disk layout, network name, a local admin username, and a local administrator password are required.");
+      return;
+    }
+    if (localAdminUsername.trim().toLowerCase() === "administrator") {
+      setError('Local admin username can\'t be "Administrator", DeployCore disables that built-in account, pick a different name.');
       return;
     }
     const body = {
@@ -278,6 +283,7 @@ function TemplateForm({
       locale,
       timezone,
       keyboard_layout: keyboardLayout,
+      local_admin_username: localAdminUsername,
       local_admin_password: localAdminPassword,
       domain_join_enabled: domainJoinEnabled,
       domain_fqdn: domainJoinEnabled ? domainFqdn : null,
@@ -403,16 +409,32 @@ function TemplateForm({
           </div>
         </div>
 
-        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
-          Local administrator password{isEdit && " (leave blank to keep unchanged)"}
-        </label>
-        <input
-          type="password"
-          autoComplete="new-password"
-          className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
-          value={localAdminPassword}
-          onChange={(e) => setLocalAdminPassword(e.target.value)}
-        />
+        <p className="mb-1 text-xs text-neutral-400">
+          Created as a new local account and added to Administrators; the built-in Administrator account is
+          disabled within seconds of first boot, so this is the account that's actually usable afterward.
+        </p>
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Local admin username</label>
+            <input
+              className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
+              value={localAdminUsername}
+              onChange={(e) => setLocalAdminUsername(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+              Local admin password{isEdit && " (leave blank to keep unchanged)"}
+            </label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
+              value={localAdminPassword}
+              onChange={(e) => setLocalAdminPassword(e.target.value)}
+            />
+          </div>
+        </div>
 
         <label className="mb-2 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Windows roles and features</label>
         <div className="mb-3 grid grid-cols-2 gap-x-3 gap-y-1 rounded-md border border-neutral-200 p-3 dark:border-neutral-700">

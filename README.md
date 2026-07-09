@@ -75,7 +75,9 @@ practice. Set it to this host's real, routable address, then
 6. **Create a template.** Templates page. This is the reusable "recipe" for
    a server: which ISO, which disk layout, CPU/RAM/disk size, network name
    (the ESXi/vCenter port group or vSwitch the VM's NIC attaches to, not a
-   Windows network name), local administrator password, optional domain
+   Windows network name), a local administrator username and password
+   (a custom account created fresh on every deployment; the built-in
+   Administrator account gets disabled automatically), optional domain
    join, and which Windows roles to install, picked from checkboxes (AD
    Domain Services, DNS, DHCP, IIS, Print Services, RD Session Host, DFS
    Namespaces, DFS Replication). Installing AD Domain Services installs the
@@ -344,8 +346,13 @@ org-scoped copy.
   zeroed), network name and network adapter type (VMXNET3, E1000, or
   E1000E), optional VLAN ID, locale/timezone/keyboard layout as Windows
   identifiers not IETF/IANA ones (new templates default to `de-DE`/
-  `W. Europe Standard Time`/`de-CH`), local administrator
-  password (write-only), optional domain join (FQDN, join account, join
+  `W. Europe Standard Time`/`de-CH`), local administrator username (default
+  `svcadmin`, can't be `Administrator`/`Guest`/`DefaultAccount`/
+  `WDAGUtilityAccount`, all reserved) and password (write-only). This
+  account is created fresh on every deployment and is the one actually
+  usable afterward: the built-in Administrator account gets disabled
+  within seconds of first boot (see the deployment pipeline section below),
+  optional domain join (FQDN, join account, join
   credential [write-only], target OU, and timing, `answer_file` bakes the
   join into the unattended install, `post_install` joins afterward over
   WinRM),
@@ -365,11 +372,12 @@ org-scoped copy.
 - Clone: duplicates any visible template (own org's or an inherited global
   one) into a new org-scoped copy named "<name> (copy)", including
   encrypted credentials (copied as ciphertext, not re-entered)
-- Export (operator+, JSON file, credentials excluded, disk layout inlined,
-  ISO recorded only as an informational filename/kind hint) and import
-  (operator+, recreates the disk layout as a new row, leaves the ISO
-  unattached, sets a random placeholder local administrator password that
-  must be replaced before the template can deploy)
+- Export (operator+, JSON file, secrets excluded but the local admin
+  *username* travels since it isn't one, disk layout inlined, ISO recorded
+  only as an informational filename/kind hint) and import (operator+,
+  recreates the disk layout as a new row, leaves the ISO unattached, sets a
+  random placeholder local administrator password that must be replaced
+  before the template can deploy)
 - Preview: renders the exact `autounattend.xml` that would be built for a
   given hostname/network configuration, without creating a deployment,
   byte-identical to what actually ships
@@ -416,12 +424,24 @@ pending → creating_vm → booting → installing_os → post_install → confi
   has a long-standing upstream quirk on some locales where `InputLocale`
   isn't honored on that one specific screen even though the rest of the
   answer file (including the specialize-pass locale, see below) applies
-  correctly. The guest's `FirstLogonCommands` enable WinRM and call back to
-  `/api/callback/{token}` (single-use per-deployment token) once Windows
-  Setup finishes, which is what advances `booting → installing_os`. That
-  callback is also the first point DeployCore can be sure Setup is done
-  with the install media for good (post-install runs entirely over WinRM
-  from here on): `wait_for_callback` ejects the Windows/VirtIO ISOs
+  correctly. The guest's `FirstLogonCommands`, in order: enable WinRM and
+  open a firewall rule for it; set `LocalAccountTokenFilterPolicy=1` (by
+  default Windows' UAC remote restriction only exempts the actual built-in
+  Administrator (RID 500) from a filtered, non-elevated token on network
+  logons, without this every WinRM command DeployCore runs post-install
+  would silently fail for the template's custom admin account even though
+  it's in Administrators); call back to `/api/callback/{token}`
+  (single-use per-deployment token), which is what advances
+  `booting → installing_os`; then disable the built-in Administrator
+  account, deliberately last, so a guest-side quirk from disabling the
+  very account `FirstLogonCommands` is running as can never prevent the
+  callback above from firing. The custom local admin account itself
+  (`template.local_admin_username`) is created earlier, declaratively, via
+  a `LocalAccounts` entry in the same oobeSystem `UserAccounts` block that
+  sets the built-in account's password, not a FirstLogonCommand. The
+  callback landing is also the first point DeployCore can be sure Setup is
+  done with the install media for good (post-install runs entirely over
+  WinRM from here on): `wait_for_callback` ejects the Windows/VirtIO ISOs
   (drive kept, emptied), removes the floppy device outright, and deletes
   the per-deployment answer-file floppy from the datastore, all
   best-effort, never worth failing an otherwise-successful deployment over
@@ -434,11 +454,19 @@ pending → creating_vm → booting → installing_os → post_install → confi
   keyboard for that locale, not necessarily its own named one;
   `template_render.py` resolves this automatically for the locales it
   knows about, or passes through an already-hex value unchanged
-- Post-install phase (over WinRM once the guest reports an IP): apply
-  static network config if requested, install each configured Windows
-  feature, run each post-install script in order, join the domain here if
-  configured for `post_install` timing, reboot, verify the guest comes back
-  reachable, then mark `completed`
+- Post-install phase (over WinRM once the guest reports an IP, authenticating
+  as `template.local_admin_username`, not the now-disabled built-in
+  Administrator): apply static network config if requested, install each
+  configured Windows feature, run each post-install script in order, join
+  the domain here if configured for `post_install` timing, reboot, verify
+  the guest comes back reachable, then as the very last WinRM action before
+  marking `completed`: remove the WinRM firewall rule, `Disable-PSRemoting`,
+  and stop+disable the WinRM service itself (the service stop runs in a
+  detached process a few seconds later, not inline, so the command reporting
+  success back doesn't get cut off by the very channel it's closing).
+  WinRM is not reachable at all on a completed deployment from this point
+  on, by design, see the health check entry below for what that means for
+  ongoing monitoring
 - Error tracing: every major pipeline step (rendering the answer file,
   uploading the Windows ISO and the answer-file floppy, creating the VM,
   attaching media, setting boot order, powering on, each post-install
@@ -453,11 +481,15 @@ pending → creating_vm → booting → installing_os → post_install → confi
   stage timeout (`os_install_timeout_minutes` setting, default 90, editable
   per organization from Settings) and runs the same cleanup
 - Post-deploy health check: a cron job runs every 15 minutes against every
-  completed deployment with a known VM, WinRM-pings its guest IP, records
-  the latest reachable/unreachable status, and keeps a 30-day append-only
-  history shown as a strip of badges on the deployment detail page (a
-  deployment that goes from healthy to unreachable also triggers a
-  notification/webhook, see below)
+  completed deployment with a known VM, and checks a plain TCP connect to
+  port 3389 (RDP, on by default on every Windows Server SKU) on its guest
+  IP, not WinRM: WinRM is deliberately closed for good once a deployment
+  completes (see above), so this only proves the guest OS is up and
+  reachable on the network, not that remote management still works,
+  nothing does, on purpose. Records the latest reachable/unreachable
+  status, keeps a 30-day append-only history shown as a strip of badges on
+  the deployment detail page (a deployment that goes from healthy to
+  unreachable also triggers a notification/webhook, see below)
 - Detail view: live pipeline-stage visualization, full state-transition
   history, streaming log output (Server-Sent Events, ~1s poll interval),
   health status + history, and a "Download full log" button producing a

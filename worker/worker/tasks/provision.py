@@ -309,7 +309,7 @@ async def run_post_install(ctx, deployment_id: str) -> None:
             if not guest_ip:
                 raise RuntimeError("guest never reported an IP address")
 
-            client = WinRMClient(guest_ip, "Administrator", template.local_admin_password)
+            client = WinRMClient(guest_ip, template.local_admin_username, template.local_admin_password)
             for _ in range(WINRM_REACHABILITY_MAX_ATTEMPTS):
                 if client.is_reachable():
                     break
@@ -332,7 +332,7 @@ async def run_post_install(ctx, deployment_id: str) -> None:
                 # the guest is no longer reachable at its DHCP address once
                 # this takes effect, reconnect on the new static address
                 # for every subsequent call in this phase.
-                client = WinRMClient(deployment.static_ip, "Administrator", template.local_admin_password)
+                client = WinRMClient(deployment.static_ip, template.local_admin_username, template.local_admin_password)
                 for _ in range(WINRM_REACHABILITY_MAX_ATTEMPTS):
                     if client.is_reachable():
                         break
@@ -389,6 +389,25 @@ async def run_post_install(ctx, deployment_id: str) -> None:
                 await asyncio.sleep(WINRM_REACHABILITY_POLL_INTERVAL_SECONDS)
             else:
                 raise RuntimeError("guest did not come back reachable after the post-install reboot")
+
+            await log(db, deployment, "configuring", "closing WinRM access, post-install is finished")
+            try:
+                # This command is itself the one thing that severs the
+                # channel it's running over: removing the firewall rule and
+                # disabling PSRemoting is safe to do inline (doesn't drop
+                # the current session), but stopping the WinRM service
+                # itself would, so that part runs detached a few seconds
+                # later, after this call has already returned its result.
+                client.run_ps(
+                    "Get-NetFirewallRule -DisplayName 'DeployCore WinRM' -ErrorAction SilentlyContinue "
+                    "| Remove-NetFirewallRule; "
+                    "Disable-PSRemoting -Force; "
+                    "Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "
+                    "'-NoProfile -Command \"Start-Sleep -Seconds 5; "
+                    "Stop-Service WinRM -Force; Set-Service WinRM -StartupType Disabled\"'"
+                )
+            except Exception:  # noqa: BLE001 - expected: this call may not get to report back before WinRM dies
+                pass
 
             await _cleanup_answer_floppy(driver, deployment)
             await _state_machine.transition(db, deployment, DeploymentState.COMPLETED)

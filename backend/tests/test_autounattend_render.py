@@ -19,6 +19,7 @@ def _make_template(**overrides) -> DeploymentTemplate:
         ram_mb=4096,
         disk_size_gb=80,
         network_name="VM Network",
+        local_admin_username="svcadmin",
         domain_join_enabled=False,
         domain_join_timing=DomainJoinTiming.ANSWER_FILE,
         windows_features=[],
@@ -173,6 +174,23 @@ def test_ui_language_has_a_fallback():
     )[0]
     assert winpe_intl.xpath("string(u:UILanguageFallback)", namespaces=NS) == "de-CH"
     assert winpe_intl.xpath("string(u:SetupUILanguage/u:UILanguage)", namespaces=NS) == "de-CH"
+
+
+def test_local_accounts_creates_custom_admin_and_still_sets_builtin_password():
+    """The built-in Administrator gets a password too (Setup needs one to
+    exist momentarily) but _first_logon_commands.xml.j2 disables it within
+    seconds of first boot; the LocalAccounts-created account is the one
+    meant to survive."""
+    template = _make_template(local_admin_username="svcwinadmin")
+    root = etree.fromstring(render_autounattend(_make_deployment(), template, _basic_disk_layout()).encode())
+
+    local_account = root.xpath("//u:UserAccounts/u:LocalAccounts/u:LocalAccount", namespaces=NS)
+    assert len(local_account) == 1
+    assert local_account[0].xpath("string(u:Name)", namespaces=NS) == "svcwinadmin"
+    assert local_account[0].xpath("string(u:Group)", namespaces=NS) == "Administrators"
+    assert local_account[0].xpath("string(u:Password/u:Value)", namespaces=NS) == "P@ssw0rd1!"
+
+    assert root.xpath("string(//u:AdministratorPassword/u:Value)", namespaces=NS) == "P@ssw0rd1!"
 
 
 def test_input_locale_resolves_bare_locale_tag_to_named_keyboard():

@@ -460,7 +460,13 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   IETF/IANA ones (new templates default to <Code>de-DE</Code>/<Code>W. Europe Standard
                   Time</Code>/<Code>de-CH</Code>; see "Unattended Windows Setup, in depth" for how keyboard
                   layout resolves to an exact physical layout rather than just a language).</>,
-                "Local administrator password (write-only, never shown again after saving)",
+                <>Local administrator username and password. The username default to <Code>svcadmin</Code>{" "}
+                  and can be anything except a reserved Windows account name (<Code>Administrator</Code>,{" "}
+                  <Code>Guest</Code>, <Code>DefaultAccount</Code>, <Code>WDAGUtilityAccount</Code>). Password
+                  is write-only, never shown again after saving. This creates a genuinely new local account
+                  on every deployment (not a rename of the built-in one) and is the account actually usable
+                  afterward, DeployCore disables the built-in Administrator account within seconds of first
+                  boot, see "Unattended Windows Setup, in depth."</>,
                 <>Optional domain join: FQDN, join account, join credential (write-only), target OU, and
                   timing, either <Code>answer_file</Code> (baked into the unattended install) or{" "}
                   <Code>post_install</Code> (joined afterward over WinRM).</>,
@@ -540,9 +546,11 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                 <>A stuck deployment (past its configured timeout, default 90 minutes, editable per
                   organization in Settings) is force-failed automatically by a background job, and cleaned
                   up the same way a real failure would be.</>,
-                <>A completed deployment gets a health check every 15 minutes (a WinRM ping to its guest
-                  IP), with up to 30 days of history shown as a strip of badges on its detail page. Going
-                  from healthy to unreachable also fires a notification/webhook.</>,
+                <>A completed deployment gets a health check every 15 minutes, a TCP connect to port 3389
+                  (RDP) on its guest IP, not WinRM, which is deliberately closed for good by this point, see
+                  "Unattended Windows Setup, in depth." Up to 30 days of history is shown as a strip of
+                  badges on its detail page; going from healthy to unreachable also fires a
+                  notification/webhook.</>,
               ]}
             />
             <P>
@@ -669,15 +677,58 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               ]}
             />
             <P>
+              <strong>OOBE and the built-in Administrator account.</strong> The <Code>OOBE</Code> block
+              (<Code>HideEULAPage</Code>, <Code>HideLocalAccountScreen</Code>,{" "}
+              <Code>HideOnlineAccountScreens</Code>, <Code>HideWirelessSetupInOOBE</Code>,{" "}
+              <Code>SkipMachineOOBE</Code>, <Code>SkipUserOOBE</Code>) suppresses every interactive OOBE
+              screen unconditionally, there's nothing to click through after Setup itself finishes. Setup
+              still requires the built-in Administrator account to have a password at this point
+              (<Code>AdministratorPassword</Code>), so it gets one, but a separate, declarative{" "}
+              <Code>LocalAccounts</Code> entry in the same <Code>UserAccounts</Code> block creates a
+              genuinely new local account (the template's own username/password, a member of{" "}
+              <Code>Administrators</Code>) at the same time, this is the account meant to survive.
+            </P>
+            <P>
+              Two <Code>FirstLogonCommands</Code> handle the built-in account: first,
+              <Code>LocalAccountTokenFilterPolicy</Code> gets set to 1 in the registry, without it Windows'
+              UAC remote restriction only exempts the true built-in Administrator (RID 500) from a
+              filtered, non-elevated token on network logons, which would silently break every WinRM
+              command DeployCore runs post-install for the custom account despite it being in
+              Administrators. Second, after the callback to DeployCore has already fired (deliberately
+              last, so a guest-side quirk from disabling the very account <Code>FirstLogonCommands</Code>{" "}
+              is running as can never risk that callback), <Code>Disable-LocalUser -Name 'Administrator'</Code>{" "}
+              deactivates the built-in account for good.
+            </P>
+            <P>
               <strong>Cleaning up after Setup is done.</strong> The guest's <Code>FirstLogonCommands</Code>{" "}
               call back to DeployCore only once Windows Setup has fully finished, OOBE included, and the
               guest has booted into the installed OS for the first time, that's the one point it's safe to
               say the install media is no longer needed by anything (post-install runs entirely over WinRM
-              afterward). That callback is what DeployCore waits for before it ejects the Windows and
+              afterward, authenticated as the custom local admin account, not the now-disabled built-in
+              one). That callback is what DeployCore waits for before it ejects the Windows and
               VirtIO ISOs (drive kept, just emptied, matching how you'd eject a real disc), removes the
               floppy device entirely (it only ever had one job), and deletes the per-deployment answer-file
               floppy image from the datastore. All of this is best-effort: a failure here is logged but
               never fails an otherwise-successful deployment.
+            </P>
+            <P>
+              <strong>Closing WinRM once post-install is done.</strong> WinRM is only ever needed while
+              DeployCore itself is actively configuring the guest; leaving it open indefinitely afterward
+              is unnecessary attack surface. The very last WinRM action of a deployment, right before it's
+              marked <Code>completed</Code>, removes the WinRM firewall rule, runs{" "}
+              <Code>Disable-PSRemoting -Force</Code>, and stops and disables the WinRM service itself. That
+              last part runs in a short-delayed detached process rather than inline, so the command doesn't
+              try to report its own success back over the exact channel it's in the middle of tearing down.
+              From this point on a completed deployment has no WinRM listener at all, by design: there's no
+              way for DeployCore (or anything else) to remotely reconfigure the guest again without an
+              operator opening it back up on the guest directly.
+            </P>
+            <P>
+              This is also why the post-deploy health check (see the Deployments article) doesn't use
+              WinRM: it can't, by the time a deployment reaches <Code>completed</Code> nothing is listening
+              on 5985 anymore. It checks a plain TCP connect to port 3389 (RDP, on by default on every
+              Windows Server SKU) instead, proof the guest OS is up and reachable on the network, not that
+              remote management still works, since deliberately nothing does.
             </P>
           </>
         ),

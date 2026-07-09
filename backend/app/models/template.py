@@ -60,6 +60,11 @@ class DeploymentTemplate(UUIDPKMixin, TimestampMixin, Base):
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
     keyboard_layout: Mapped[str] = mapped_column(String(20), default="en-US", nullable=False)
 
+    # not "Administrator": DeployCore creates this as a new local account
+    # and disables the built-in Administrator account during Setup, see
+    # autounattend_base.xml.j2's LocalAccounts block and
+    # _first_logon_commands.xml.j2.
+    local_admin_username: Mapped[str] = mapped_column(String(64), default="svcadmin", nullable=False)
     local_admin_password_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
 
     domain_join_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

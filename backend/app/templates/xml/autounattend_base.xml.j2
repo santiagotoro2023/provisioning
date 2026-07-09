@@ -59,10 +59,27 @@
     <settings pass="oobeSystem">
         <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
             <UserAccounts>
+                <!-- The built-in Administrator gets a password too (Setup
+                     requires one to exist momentarily regardless), but it's
+                     disabled by _first_logon_commands.xml.j2 within seconds
+                     of first boot; template.local_admin_username below is
+                     the account actually meant to be used going forward. -->
                 <AdministratorPassword>
                     <Value>{{ template.local_admin_password }}</Value>
                     <PlainText>true</PlainText>
                 </AdministratorPassword>
+                <LocalAccounts>
+                    <LocalAccount wcm:action="add">
+                        <Password>
+                            <Value>{{ template.local_admin_password }}</Value>
+                            <PlainText>true</PlainText>
+                        </Password>
+                        <Description>Local administrator (managed by DeployCore)</Description>
+                        <DisplayName>{{ template.local_admin_username }}</DisplayName>
+                        <Group>Administrators</Group>
+                        <Name>{{ template.local_admin_username }}</Name>
+                    </LocalAccount>
+                </LocalAccounts>
             </UserAccounts>
             <OOBE>
                 <HideEULAPage>true</HideEULAPage>

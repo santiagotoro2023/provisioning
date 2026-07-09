@@ -91,6 +91,7 @@ export interface DeploymentTemplate {
   locale: string;
   timezone: string;
   keyboard_layout: string;
+  local_admin_username: string;
   domain_join_enabled: boolean;
   domain_fqdn: string | null;
   domain_join_account: string | null;
