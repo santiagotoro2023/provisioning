@@ -18,6 +18,7 @@ export default function IsoAssets() {
   const [isos, setIsos] = useState<IsoAsset[]>([]);
   const [showUpload, setShowUpload] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<IsoAsset | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const isGlobalAdmin = !!user && roleAtLeast(user.global_role, "admin");
 
@@ -28,13 +29,18 @@ export default function IsoAssets() {
 
   async function deleteIso() {
     if (!confirmDelete) return;
-    if (confirmDelete.org_id) {
-      await api.delete(`/organizations/${confirmDelete.org_id}/iso-assets/${confirmDelete.id}`);
-    } else {
-      await api.delete(`/iso-assets/global/${confirmDelete.id}`);
+    setDeleteError(null);
+    try {
+      if (confirmDelete.org_id) {
+        await api.delete(`/organizations/${confirmDelete.org_id}/iso-assets/${confirmDelete.id}`);
+      } else {
+        await api.delete(`/iso-assets/global/${confirmDelete.id}`);
+      }
+      setConfirmDelete(null);
+      await load();
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Failed to delete this ISO.");
     }
-    setConfirmDelete(null);
-    await load();
   }
 
   useEffect(() => {
@@ -77,7 +83,10 @@ export default function IsoAssets() {
               (i.org_id ? canManage && i.org_id === selectedOrgId : isGlobalAdmin) && (
                 <button
                   className="flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
-                  onClick={() => setConfirmDelete(i)}
+                  onClick={() => {
+                    setDeleteError(null);
+                    setConfirmDelete(i);
+                  }}
                 >
                   <Trash2 size={12} strokeWidth={1.75} />
                 </button>
@@ -103,13 +112,19 @@ export default function IsoAssets() {
         open={!!confirmDelete}
         title="Delete ISO asset"
         message={
-          confirmDelete?.org_id
-            ? `Delete "${confirmDelete?.filename}"? This removes the file from disk. Templates referencing it will refuse to deploy until a new ISO is attached. This cannot be undone.`
-            : `Delete "${confirmDelete?.filename}"? This is a global ISO, every organization that references it will refuse to deploy until a new ISO is attached. This cannot be undone.`
+          <>
+            {confirmDelete?.org_id
+              ? `Delete "${confirmDelete?.filename}"? This removes the file from disk. Templates referencing it will have their ISO cleared and refuse to deploy until a new one is attached. This cannot be undone.`
+              : `Delete "${confirmDelete?.filename}"? This is a global ISO, templates in every organization that reference it will have their ISO cleared and refuse to deploy until a new one is attached. This cannot be undone.`}
+            {deleteError && <div className="mt-2 text-red-600 dark:text-red-400">{deleteError}</div>}
+          </>
         }
         confirmLabel="Delete"
         onConfirm={deleteIso}
-        onCancel={() => setConfirmDelete(null)}
+        onCancel={() => {
+          setDeleteError(null);
+          setConfirmDelete(null);
+        }}
       />
     </div>
   );

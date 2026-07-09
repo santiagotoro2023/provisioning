@@ -117,14 +117,19 @@ async def delete_iso_asset(
     current_user: User = Depends(get_current_user),
 ) -> None:
     iso = await _get_org_owned_iso(db, org_id, iso_id)
-    if iso.storage_path:
-        Path(iso.storage_path).unlink(missing_ok=True)
+    storage_path = iso.storage_path
     audit.record(
         db, action="iso_asset.delete", target_type="iso_asset", org_id=org_id,
         user_id=current_user.id, target_id=iso.id, detail={"filename": iso.filename},
     )
     await db.delete(iso)
+    # commit before touching the file: templates referencing this ISO now
+    # have their iso_asset_id set to NULL rather than blocking the delete
+    # (see migration 0021), but if the commit fails for any other reason
+    # the file must stay in sync with the row that still claims it exists.
     await db.commit()
+    if storage_path:
+        Path(storage_path).unlink(missing_ok=True)
 
 
 async def _get_global_iso(db: AsyncSession, iso_id: uuid.UUID) -> IsoAsset:
@@ -208,11 +213,12 @@ async def delete_global_iso_asset(
     iso_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ) -> None:
     iso = await _get_global_iso(db, iso_id)
-    if iso.storage_path:
-        Path(iso.storage_path).unlink(missing_ok=True)
+    storage_path = iso.storage_path
     audit.record(
         db, action="iso_asset.delete_global", target_type="iso_asset",
         user_id=current_user.id, target_id=iso.id, detail={"filename": iso.filename},
     )
     await db.delete(iso)
     await db.commit()
+    if storage_path:
+        Path(storage_path).unlink(missing_ok=True)

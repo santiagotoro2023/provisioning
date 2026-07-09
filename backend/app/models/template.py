@@ -37,7 +37,7 @@ class DeploymentTemplate(UUIDPKMixin, TimestampMixin, Base):
     # operator has uploaded the Windows ISO it deploys from, the
     # provisioning pipeline itself refuses to run without one.
     iso_asset_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("iso_assets.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("iso_assets.id", ondelete="SET NULL"), nullable=True
     )
     disk_layout_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("disk_layouts.id"), nullable=False
