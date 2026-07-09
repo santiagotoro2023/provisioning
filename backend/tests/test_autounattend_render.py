@@ -140,3 +140,20 @@ def test_callback_url_and_token_in_first_logon_commands():
     assert len(commands) == 1
     joined = etree.tostring(commands[0]).decode()
     assert f"/api/callback/{deployment.callback_token}" in joined
+
+
+def test_special_characters_in_password_are_escaped_not_corrupted():
+    """A field containing &, <, or > must not break the XML: Setup silently
+    ignores an unparseable answer file and falls back to interactive
+    install with no visible error, exactly the failure mode this guards
+    against (see template_render.py's autoescape comment)."""
+    template = _make_template(
+        domain_join_enabled=True,
+        domain_fqdn="corp.example.com",
+        domain_join_account="svc-join",
+    )
+    template.local_admin_password = "P&ssw0rd<1>!"
+    root = etree.fromstring(render_autounattend(_make_deployment(), template, _basic_disk_layout()).encode())
+
+    password = root.xpath("string(//u:AdministratorPassword/u:Value)", namespaces=NS)
+    assert password == "P&ssw0rd<1>!"
