@@ -6,7 +6,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import DataTable from "../components/DataTable";
 import Select from "../components/Select";
 import { downloadJson, readJsonFile } from "../lib/jsonFile";
-import { DeploymentTemplate, DiskLayout, DiskProvisioning, IsoAsset, NetworkAdapterType } from "../api/types";
+import { AppAsset, AppInstallEntry, DeploymentTemplate, DiskLayout, DiskProvisioning, IsoAsset, NetworkAdapterType } from "../api/types";
 import { useAuth, roleAtLeast } from "../state/auth";
 import { useOrg } from "../state/org";
 
@@ -27,6 +27,7 @@ export default function Templates() {
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([]);
   const [diskLayouts, setDiskLayouts] = useState<DiskLayout[]>([]);
   const [isoAssets, setIsoAssets] = useState<IsoAsset[]>([]);
+  const [appAssets, setAppAssets] = useState<AppAsset[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<DeploymentTemplate | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -35,14 +36,16 @@ export default function Templates() {
 
   async function load() {
     if (!selectedOrgId) return;
-    const [t, d, i] = await Promise.all([
+    const [t, d, i, a] = await Promise.all([
       api.get<DeploymentTemplate[]>(`/organizations/${selectedOrgId}/templates`),
       api.get<DiskLayout[]>(`/organizations/${selectedOrgId}/disk-layouts`),
       api.get<IsoAsset[]>(`/organizations/${selectedOrgId}/iso-assets`),
+      api.get<AppAsset[]>(`/organizations/${selectedOrgId}/app-assets`),
     ]);
     setTemplates(t);
     setDiskLayouts(d);
     setIsoAssets(i.filter((iso) => iso.kind === "windows_iso"));
+    setAppAssets(a);
   }
 
   useEffect(() => {
@@ -181,6 +184,7 @@ export default function Templates() {
           orgId={selectedOrgId}
           diskLayouts={diskLayouts}
           isoAssets={isoAssets}
+          appAssets={appAssets}
           onClose={() => setShowCreate(false)}
           onSaved={async () => {
             setShowCreate(false);
@@ -193,6 +197,7 @@ export default function Templates() {
           orgId={selectedOrgId}
           diskLayouts={diskLayouts}
           isoAssets={isoAssets}
+          appAssets={appAssets}
           existing={editing}
           onClose={() => setEditing(null)}
           onSaved={async () => {
@@ -218,6 +223,7 @@ function TemplateForm({
   orgId,
   diskLayouts,
   isoAssets,
+  appAssets,
   existing,
   onClose,
   onSaved,
@@ -225,6 +231,7 @@ function TemplateForm({
   orgId: string;
   diskLayouts: DiskLayout[];
   isoAssets: IsoAsset[];
+  appAssets: AppAsset[];
   existing?: DeploymentTemplate;
   onClose: () => void;
   onSaved: () => void;
@@ -257,7 +264,34 @@ function TemplateForm({
   const [domainJoinAccount, setDomainJoinAccount] = useState(existing?.domain_join_account ?? "");
   const [domainJoinCredential, setDomainJoinCredential] = useState("");
   const [windowsFeatures, setWindowsFeatures] = useState<string[]>(existing?.windows_features ?? []);
+  const [appInstalls, setAppInstalls] = useState<AppInstallEntry[]>(existing?.app_installs ?? []);
+  const [appToAdd, setAppToAdd] = useState(appAssets[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
+
+  function addAppInstall() {
+    if (!appToAdd || appInstalls.some((e) => e.app_asset_id === appToAdd)) return;
+    setAppInstalls((prev) => [...prev, { app_asset_id: appToAdd, install_args: "" }]);
+    const remaining = appAssets.filter((a) => a.id !== appToAdd && !appInstalls.some((e) => e.app_asset_id === a.id));
+    setAppToAdd(remaining[0]?.id ?? "");
+  }
+
+  function removeAppInstall(appAssetId: string) {
+    setAppInstalls((prev) => prev.filter((e) => e.app_asset_id !== appAssetId));
+  }
+
+  function moveAppInstall(index: number, direction: -1 | 1) {
+    setAppInstalls((prev) => {
+      const next = [...prev];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function setAppInstallArgs(appAssetId: string, args: string) {
+    setAppInstalls((prev) => prev.map((e) => (e.app_asset_id === appAssetId ? { ...e, install_args: args } : e)));
+  }
 
   function toggleFeature(name: string) {
     setWindowsFeatures((prev) => (prev.includes(name) ? prev.filter((f) => f !== name) : [...prev, name]));
@@ -300,6 +334,7 @@ function TemplateForm({
       domain_join_credential: domainJoinEnabled ? domainJoinCredential : null,
       windows_features: windowsFeatures,
       post_install_scripts: existing?.post_install_scripts ?? [],
+      app_installs: appInstalls,
     };
     try {
       if (isEdit) {
@@ -464,6 +499,60 @@ function TemplateForm({
               {f.label}
             </label>
           ))}
+        </div>
+
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Software to install</label>
+        <p className="mb-1 text-xs text-neutral-400">
+          Installed silently over WinRM after Windows features, before any post-install scripts. Upload
+          MSI/EXE installers on the App Assets page first.
+        </p>
+        {appInstalls.length > 0 && (
+          <div className="mb-2 space-y-1.5">
+            {appInstalls.map((entry, index) => {
+              const app = appAssets.find((a) => a.id === entry.app_asset_id);
+              return (
+                <div key={entry.app_asset_id} className="flex items-center gap-2 rounded-md border border-neutral-200 p-2 dark:border-neutral-700">
+                  <span className="w-40 shrink-0 truncate text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                    {app?.name ?? "(deleted app asset)"}
+                  </span>
+                  <input
+                    className="min-w-0 flex-1 rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-xs dark:bg-neutral-900"
+                    placeholder={app ? `Default: ${app.default_install_args || "(none)"}` : "install args"}
+                    value={entry.install_args}
+                    onChange={(e) => setAppInstallArgs(entry.app_asset_id, e.target.value)}
+                  />
+                  <div className="flex shrink-0 gap-1">
+                    <button type="button" className="rounded border border-neutral-300 px-1.5 py-0.5 text-xs disabled:opacity-30 dark:border-neutral-700" disabled={index === 0} onClick={() => moveAppInstall(index, -1)}>
+                      ↑
+                    </button>
+                    <button type="button" className="rounded border border-neutral-300 px-1.5 py-0.5 text-xs disabled:opacity-30 dark:border-neutral-700" disabled={index === appInstalls.length - 1} onClick={() => moveAppInstall(index, 1)}>
+                      ↓
+                    </button>
+                    <button type="button" className="rounded border border-red-200 px-1.5 py-0.5 text-xs text-red-700 dark:border-red-900 dark:text-red-400" onClick={() => removeAppInstall(entry.app_asset_id)}>
+                      <Trash2 size={12} strokeWidth={1.75} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="mb-3 flex gap-2">
+          <Select
+            className="flex-1 rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm"
+            value={appToAdd}
+            onChange={(e) => setAppToAdd(e.target.value)}
+          >
+            {appAssets.length === 0 && <option value="">No app assets uploaded yet</option>}
+            {appAssets
+              .filter((a) => !appInstalls.some((e) => e.app_asset_id === a.id))
+              .map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+          </Select>
+          <button type="button" className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700" onClick={addAppInstall} disabled={!appToAdd}>
+            Add
+          </button>
         </div>
 
         <label className="mb-2 flex items-center gap-2 text-xs font-medium text-neutral-600 dark:text-neutral-400">

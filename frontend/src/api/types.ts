@@ -65,6 +65,25 @@ export interface IsoAsset {
   upload_status: UploadStatus;
 }
 
+export type AppKind = "msi" | "exe";
+
+export interface AppAsset {
+  id: string;
+  org_id: string | null;
+  kind: AppKind;
+  name: string;
+  filename: string;
+  checksum_sha256: string | null;
+  size_bytes: number;
+  default_install_args: string;
+  upload_status: UploadStatus;
+}
+
+export interface AppInstallEntry {
+  app_asset_id: string;
+  install_args: string;
+}
+
 export type DomainJoinTiming = "answer_file" | "post_install";
 export type DiskProvisioning = "thin" | "thick_lazy_zeroed" | "thick_eager_zeroed";
 export type NetworkAdapterType = "vmxnet3" | "e1000" | "e1000e";
@@ -100,6 +119,7 @@ export interface DeploymentTemplate {
   domain_join_timing: DomainJoinTiming;
   windows_features: string[];
   post_install_scripts: PostInstallScript[];
+  app_installs: AppInstallEntry[];
 }
 
 export type IpMode = "dhcp" | "static";

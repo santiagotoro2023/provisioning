@@ -1,4 +1,5 @@
 import asyncio
+import secrets
 import traceback
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -6,10 +7,12 @@ from pathlib import Path
 
 from sqlalchemy import or_, select
 
+from app.config import get_settings
 from app.db import SessionLocal
 from app.hypervisors import get_driver
 from app.hypervisors.base import HypervisorDriver, VmSpec
 from app.hypervisors.defaults import HYPERVISOR_DEFAULTS
+from app.models.app_asset import AppAsset
 from app.models.deployment import Deployment, DeploymentState, IpMode, LogLevel
 from app.models.disk_layout import DiskLayout
 from app.models.hypervisor import HypervisorHost
@@ -112,6 +115,7 @@ async def _fail(
         # one scroll away in the log stream.
         await log(db, deployment, deployment.state.value, traceback_text, level=LogLevel.ERROR)
     await _cleanup_answer_floppy(driver, deployment)
+    deployment.app_asset_access_token = None
     if deployment.vm_moref:
         try:
             await driver.delete_vm(deployment.vm_moref)
@@ -352,6 +356,44 @@ async def run_post_install(ctx, deployment_id: str) -> None:
                 )
                 if not result.ok:
                     raise RuntimeError(f"Install-WindowsFeature {feature} failed: {result.stderr}")
+
+            if template.app_installs:
+                # Short-lived, cleared right after this block: authenticates
+                # the guest's own Invoke-WebRequest calls back to DeployCore
+                # for each app it downloads (see api/routes/app_assets.py's
+                # download_app_asset), there's no user session to
+                # authenticate those with, same reasoning as callback_token.
+                deployment.app_asset_access_token = secrets.token_urlsafe(32)
+                await db.commit()
+                callback_base_url = get_settings().app_public_url
+                for entry in template.app_installs:
+                    app_asset = await db.get(AppAsset, uuid.UUID(entry["app_asset_id"]))
+                    if app_asset is None:
+                        await log(
+                            db, deployment, "post_install",
+                            f"skipping app install: asset {entry['app_asset_id']} no longer exists",
+                            level=LogLevel.ERROR,
+                        )
+                        continue
+                    install_args = entry.get("install_args") or app_asset.default_install_args
+                    await log(db, deployment, "post_install", f"installing {app_asset.name}")
+                    download_url = (
+                        f"{callback_base_url}/api/deployments/{deployment.id}/app-assets/{app_asset.id}/download"
+                        f"?token={deployment.app_asset_access_token}"
+                    )
+                    remote_path = f"C:\\Windows\\Temp\\{app_asset.id}-{app_asset.filename}"
+                    result = client.install_app(download_url, remote_path, app_asset.kind.value, install_args)
+                    await log(
+                        db,
+                        deployment,
+                        "post_install",
+                        result.stdout or result.stderr,
+                        level=LogLevel.INFO if result.ok else LogLevel.ERROR,
+                    )
+                    if not result.ok:
+                        raise RuntimeError(f"installing {app_asset.name} failed (exit {result.status_code}): {result.stderr}")
+                deployment.app_asset_access_token = None
+                await db.commit()
 
             for script in template.post_install_scripts:
                 await log(db, deployment, "post_install", f"running post-install script {script['name']}")

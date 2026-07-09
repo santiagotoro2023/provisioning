@@ -83,6 +83,13 @@ class DeploymentTemplate(UUIDPKMixin, TimestampMixin, Base):
 
     windows_features: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     post_install_scripts: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    # Ordered list of {"app_asset_id": "<uuid str>", "install_args": "<str>"},
+    # installed over WinRM in list order, after Windows features and before
+    # post_install_scripts (so a script can assume an app is already
+    # installed). install_args overrides the AppAsset's own
+    # default_install_args for this one attachment; an empty string falls
+    # back to the asset's default at install time.
+    app_installs: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
 
     @property
     def local_admin_password(self) -> str:

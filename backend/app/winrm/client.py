@@ -20,6 +20,12 @@ def netmask_to_prefix(netmask: str) -> int:
     return ipaddress.ip_network(f"0.0.0.0/{netmask}").prefixlen
 
 
+def _ps_single_quote(value: str) -> str:
+    """PowerShell's own escape convention for a single-quoted string
+    literal is doubling the quote, not backslash-escaping it."""
+    return "'" + value.replace("'", "''") + "'"
+
+
 class WinRMClient:
     """Thin sync wrapper over pywinrm. Every method is blocking, worker
     tasks call these via asyncio.to_thread, same pattern as the ESXi
@@ -57,6 +63,37 @@ class WinRMClient:
             f"New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress '{ip}' "
             f"-PrefixLength {netmask_prefix} -DefaultGateway '{gateway}'; "
             f"Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses ({dns_list})"
+        )
+        return self.run_ps(script)
+
+    def install_app(self, download_url: str, remote_path: str, kind: str, install_args: str) -> WinRMResult:
+        """Downloads an installer from DeployCore over the guest's own
+        Invoke-WebRequest (not pushed by the worker, same reasoning as the
+        Setup-complete callback: the guest already reaches DeployCore's
+        API, so there's no need to chunk the file through WinRM itself)
+        and runs it silently. kind "msi" goes through msiexec, anything
+        else runs the downloaded file directly with install_args passed
+        straight through, whatever that installer's own silent-install
+        convention is. Exit code 3010 (success, reboot required) counts as
+        success alongside 0, the same convention MSI and many EXE
+        installers both use for "done, but you should reboot"."""
+        url = _ps_single_quote(download_url)
+        path = _ps_single_quote(remote_path)
+        if kind == "msi":
+            # A single raw argument-list string, not an array: msiexec (like
+            # most Windows installers) does its own command-line parsing,
+            # splitting install_args ("/qn /norestart") into an array would
+            # pass it as one single quoted argument instead of two flags.
+            arg_list = _ps_single_quote(f'/i "{remote_path}" {install_args}')
+            run_line = f"$p = Start-Process msiexec.exe -ArgumentList {arg_list} -Wait -PassThru"
+        else:
+            arg_list = _ps_single_quote(install_args)
+            run_line = f"$p = Start-Process -FilePath {path} -ArgumentList {arg_list} -Wait -PassThru"
+        script = (
+            f"Invoke-WebRequest -Uri {url} -OutFile {path} -UseBasicParsing; "
+            f"{run_line}; "
+            f"Remove-Item {path} -Force -ErrorAction SilentlyContinue; "
+            "if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) { exit 0 } else { exit $p.ExitCode }"
         )
         return self.run_ps(script)
 

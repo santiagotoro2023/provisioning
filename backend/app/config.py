@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     app_public_url: str = "http://localhost:8000"
     iso_storage_path: str = "/data/isos"
     iso_build_tmp: str = "/data/iso_build_tmp"
+    app_asset_storage_path: str = "/data/app_assets"
+    app_asset_build_tmp: str = "/data/app_asset_build_tmp"
     backup_dir: str = "/data/backups"
     tls_certs_path: str = "/data/tls"
 

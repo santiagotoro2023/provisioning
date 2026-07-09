@@ -395,6 +395,60 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
         ),
       },
       {
+        id: "app-assets",
+        title: "App assets",
+        overview: (
+          <>
+            <P>
+              An installable piece of software, an RMM/monitoring agent, antivirus, a line-of-business app,
+              anything with a silent-install flag, uploaded once and attached to as many templates as you
+              like. A template installs its attached apps automatically after Windows Setup finishes, no
+              manual RDP-in-and-double-click-the-installer step needed.
+            </P>
+          </>
+        ),
+        deepDive: (
+          <>
+            <P>
+              Same upload mechanics as ISO assets: chunked from the browser, org-scoped or global (a
+              global admin gets the same "Available to" choice, handy for an agent every customer
+              environment should get). Three fields beyond the file itself: a <strong>display name</strong>{" "}
+              (independent of the uploaded filename, so "Datto RMM Agent" can be what operators see even
+              if the file itself is <Code>AgentSetup_2024.1.exe</Code>), whether it's an <strong>MSI or
+              EXE</strong>, and <strong>default silent-install arguments</strong> (e.g. <Code>/qn
+              /norestart</Code> for an MSI, or whatever an EXE's own convention is, commonly{" "}
+              <Code>/S</Code>, <Code>/silent</Code>, <Code>/verysilent</Code>, or <Code>/quiet</Code>,
+              check the vendor's docs, there's no universal standard for EXEs the way MSI has one).
+            </P>
+            <P>
+              A template attaches any number of app assets in an ordered list (Templates page, the
+              "Software to install" section), each with its own optional argument override, blank means
+              "use the asset's own default." Installed over WinRM during post_install, after Windows
+              features and before post-install scripts, so a script can assume an app installed earlier in
+              the list is already there by the time it runs.
+            </P>
+            <P>
+              Delivery is guest-initiated: the guest's own <Code>Invoke-WebRequest</Code> downloads each
+              installer directly from DeployCore, the worker never pushes file bytes through WinRM itself
+              (the same reasoning as the Setup-complete callback: the guest already reaches DeployCore's
+              API, so there's no need to chunk a multi-hundred-MB installer through WinRM's own message-size
+              limits). That download endpoint is authenticated by a random, single-deployment token
+              generated right before the first app install and cleared right after (or on failure), there's
+              no user session to authenticate the guest with, the same pattern as the callback token itself.
+              MSI installs run through <Code>msiexec /i "&lt;path&gt;" &lt;args&gt;</Code>; EXE installs run
+              the downloaded file directly with the arguments passed straight through. Either way, exit
+              code <Code>3010</Code> (success, reboot required) counts as success alongside <Code>0</Code>.
+            </P>
+            <P>
+              Deleting an app asset removes the file and the database row immediately, it isn't a foreign
+              key the way <Code>iso_asset_id</Code> is: a template's attached apps are just a list of ids
+              in a JSON column. A template that still lists a deleted app skips it at deploy time (logged
+              as an error) rather than failing the whole deployment or blocking the delete.
+            </P>
+          </>
+        ),
+      },
+      {
         id: "disk-layouts",
         title: "Disk layouts",
         overview: (
@@ -472,7 +526,10 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   timing, either <Code>answer_file</Code> (baked into the unattended install) or{" "}
                   <Code>post_install</Code> (joined afterward over WinRM).</>,
                 "A curated list of Windows roles/features, picked as checkboxes: AD Domain Services, DNS, DHCP, Web Server (IIS), Print Services, Remote Desktop Session Host, DFS Namespaces, DFS Replication.",
-                "Any number of post-install PowerShell scripts (name + script text), run in order after roles are installed.",
+                <>An ordered list of <strong>app installs</strong>, App Assets to install automatically
+                  (see that article), with an optional argument override per attachment. Installed after
+                  roles, before post-install scripts.</>,
+                "Any number of post-install PowerShell scripts (name + script text), run in order after roles and app installs.",
               ]}
             />
             <P>
@@ -541,9 +598,10 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   failing an otherwise-successful deployment over. Nothing from here on (post-install runs
                   entirely over WinRM) needs any of it.</>,
                 <>Post-install runs over WinRM once the guest reports an IP: apply static network config
-                  if requested, install each selected Windows role, run post-install scripts in order,
-                  join the domain here if configured for that timing, reboot, verify it comes back
-                  reachable, then mark the deployment completed.</>,
+                  if requested, install each selected Windows role, install each attached app asset in
+                  order (see "App assets"), run post-install scripts in order, join the domain here if
+                  configured for that timing, reboot, verify it comes back reachable, then mark the
+                  deployment completed.</>,
                 <>A stuck deployment (past its configured timeout, default 90 minutes, editable per
                   organization in Settings) is force-failed automatically by a background job, and cleaned
                   up the same way a real failure would be.</>,

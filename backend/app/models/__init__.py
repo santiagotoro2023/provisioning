@@ -1,3 +1,4 @@
+from app.models.app_asset import AppAsset, AppKind
 from app.models.audit_log import AuditLog
 from app.models.base import Base
 from app.models.deployment import (
@@ -21,6 +22,8 @@ from app.models.user import Role, User, UserOrgRole
 from app.models.webhook import Webhook, WebhookDelivery
 
 __all__ = [
+    "AppAsset",
+    "AppKind",
     "AuditLog",
     "Base",
     "ConnectionStatus",

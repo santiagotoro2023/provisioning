@@ -20,6 +20,14 @@ class PostInstallScript(BaseModel):
     script_text: str
 
 
+class AppInstallEntry(BaseModel):
+    app_asset_id: uuid.UUID
+    # Overrides the AppAsset's own default_install_args for this one
+    # attachment; blank means "use the asset's default" (see
+    # worker/tasks/provision.py), not "no arguments at all".
+    install_args: str = ""
+
+
 class DeploymentTemplateCreate(BaseModel):
     name: str
     iso_asset_id: uuid.UUID | None = None
@@ -46,6 +54,7 @@ class DeploymentTemplateCreate(BaseModel):
     domain_join_timing: DomainJoinTiming = DomainJoinTiming.ANSWER_FILE
     windows_features: list[str] = []
     post_install_scripts: list[PostInstallScript] = []
+    app_installs: list[AppInstallEntry] = []
 
 
 class DeploymentTemplateUpdate(BaseModel):
@@ -74,6 +83,7 @@ class DeploymentTemplateUpdate(BaseModel):
     domain_join_timing: DomainJoinTiming | None = None
     windows_features: list[str] | None = None
     post_install_scripts: list[PostInstallScript] | None = None
+    app_installs: list[AppInstallEntry] | None = None
 
 
 class DeploymentTemplateRead(BaseModel):
@@ -104,6 +114,7 @@ class DeploymentTemplateRead(BaseModel):
     domain_join_timing: DomainJoinTiming
     windows_features: list[str]
     post_install_scripts: list[PostInstallScript]
+    app_installs: list[AppInstallEntry]
 
 
 class TemplateExportDiskLayout(BaseModel):
@@ -119,12 +130,16 @@ class TemplateExportIsoHint(BaseModel):
 class DeploymentTemplateExport(BaseModel):
     """Credentials are deliberately omitted, an import always starts with
     a random placeholder password that must be replaced before the
-    template is deployable. iso_hint is informational only: the ISO
-    itself isn't portable, so import never sets iso_asset_id."""
+    template is deployable. iso_hint and app_install_hints are
+    informational only: an ISO or an app asset isn't portable across
+    environments (a matching id may not exist, or may exist and mean
+    something else), so import leaves iso_asset_id unset and
+    app_installs empty, the same reasoning for both."""
 
     name: str
     disk_layout: TemplateExportDiskLayout
     iso_hint: TemplateExportIsoHint | None
+    app_install_hints: list[str]
     cpu_count: int
     cores_per_socket: int
     ram_mb: int

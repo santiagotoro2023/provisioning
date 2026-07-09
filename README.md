@@ -188,7 +188,7 @@ no explicit role) grants no access anywhere.
 | Role | Can do |
 |---|---|
 | `readonly` | View everything in organizations they're scoped to |
-| `operator` | Everything `readonly` can, plus: create/retry/bulk-create deployments, power on/shut down/power off a deployment's VM, create/edit/delete disk layouts, templates, and ISO assets, clone/export/import templates and disk layouts |
+| `operator` | Everything `readonly` can, plus: create/retry/bulk-create deployments, power on/shut down/power off a deployment's VM, create/edit/delete disk layouts, templates, ISO assets, and app assets, clone/export/import templates and disk layouts |
 | `admin` | Everything `operator` can, plus: create/edit organizations, manage hypervisor hosts and webhooks (including credentials/secrets) and run their test buttons, delete a deployment record, edit organization/global settings, manage users, their global or org-role assignments, and deactivate/reactivate or permanently delete a user (global-admin only), delete an organization outright (global-admin only), rename the instance and manage its logo (global-admin only), configure M365 email and trigger backups/updates (global-admin only), upload/switch the HTTPS certificate (global-admin only) |
 
 RBAC is enforced server-side on every route (a dependency resolves the
@@ -197,8 +197,8 @@ below the floor), the UI hiding a button is a convenience, not the
 enforcement point.
 
 Every `Organization` is an independent tenant: its own hypervisors,
-templates, disk layouts, ISO assets, deployments, webhooks, settings, and
-audit log. There is no separate "MSP organization" entity, the instance
+templates, disk layouts, ISO assets, app assets, deployments, webhooks,
+settings, and audit log. There is no separate "MSP organization" entity, the instance
 itself is identified by the `instance_name` (set during setup, editable
 afterward) and "MSP admin" means any user with `global_role = admin`, who
 can see and manage every organization. `DiskLayout`, `DeploymentTemplate`,
@@ -336,6 +336,36 @@ org-scoped copy.
   reason never leaves an orphaned file with a database row still pointing
   at it
 
+### App Assets
+- Org-scoped or global, same visibility/inheritance model and the same
+  chunked-upload flow as ISO Assets (`POST /api/app-assets/global` and its
+  own chunk/finalize/delete routes for global ones, admin-only)
+- An MSI or EXE installer (`kind`), a display name (independent of the
+  uploaded filename, e.g. "Datto RMM Agent" vs. `AgentSetup_1.2.3.exe`),
+  and default silent-install arguments (e.g. `/qn /norestart` for an MSI,
+  or whatever an EXE's own convention is, commonly `/S`/`/silent`/
+  `/verysilent`/`/quiet`); a template can override the arguments per
+  attachment without touching the asset itself
+- Attached to a template's `app_installs` (ordered list of
+  `{app_asset_id, install_args}`), installed over WinRM during
+  post_install, after Windows features and before post-install scripts
+  (so a script can assume an app installed earlier in the list is already
+  there). Not a foreign key: `app_installs` is a JSONB column, a deleted
+  app asset is skipped with an error log line at deploy time rather than
+  blocking the delete or failing the whole deployment
+- Delivery is guest-initiated, not worker-pushed: the guest's own
+  `Invoke-WebRequest` downloads the installer directly from DeployCore's
+  API (`GET /api/deployments/{id}/app-assets/{app_id}/download`), the
+  same reasoning as the Setup-complete callback, the guest already
+  reaches DeployCore, so there's no need to chunk the file through WinRM.
+  That endpoint is authenticated by a random per-deployment token
+  (`deployments.app_asset_access_token`), generated right before the
+  first app install and cleared right after (or on failure), not a user
+  session, there isn't one to authenticate the guest with
+- MSI installs run through `msiexec /i "<path>" <args>`; EXE installs run
+  the downloaded file directly with `<args>` passed straight through.
+  Exit code 3010 (success, reboot required) counts as success alongside 0
+
 ### Deployment Templates
 - Org-scoped or global (global templates are inherited read-only by every
   org and can be cloned into an org-scoped copy)
@@ -363,8 +393,11 @@ org-scoped copy.
   Windows roles/features picked as checkboxes from a curated list scoped to
   what a standalone Windows Server actually needs (AD Domain Services, DNS,
   DHCP, Web Server (IIS), Print Services, Remote Desktop Session Host, DFS
-  Namespaces, DFS Replication), list of post-install PowerShell scripts
-  (name + script text, run in order after roles). Each role is installed
+  Namespaces, DFS Replication), an ordered list of app installs (App Assets
+  to install, with optional per-attachment argument overrides, run after
+  roles and before post-install scripts, see the App Assets section above),
+  and a list of post-install PowerShell scripts (name + script text, run in
+  order after both). Each role is installed
   with a plain `Install-WindowsFeature`, nothing more: AD Domain Services
   installs the role binaries only, not a forest/domain promotion or any
   GPO/OU/delegation setup, do that yourself afterward (`Install-ADDSForest`
@@ -464,7 +497,10 @@ pending → creating_vm → booting → installing_os → post_install → confi
 - Post-install phase (over WinRM once the guest reports an IP, authenticating
   as `template.local_admin_username`, not the now-disabled built-in
   Administrator): apply static network config if requested, install each
-  configured Windows feature, run each post-install script in order, join
+  configured Windows feature, install each configured app asset in order
+  (the guest downloads each installer itself over `Invoke-WebRequest`, see
+  the App Assets section above for the token/download flow, then runs it
+  silently and deletes it), run each post-install script in order, join
   the domain here if configured for `post_install` timing, reboot, verify
   the guest comes back reachable, then as the very last WinRM action before
   marking `completed`: remove the WinRM firewall rule, `Disable-PSRemoting`,
@@ -575,8 +611,8 @@ if unset anywhere).
 Per-organization, append-only, paginated, exportable to CSV. Records action,
 target type/ID, acting user, timestamp, and a JSON detail blob. Covers
 login/logout/2FA changes/force-logout, user/organization/hypervisor/disk
-layout/template/ISO asset/webhook create-update-delete, template and disk
-layout export/import, settings changes (including logo, M365 config, and
+layout/template/ISO asset/app asset/webhook create-update-delete, template
+and disk layout export/import, settings changes (including logo, M365 config, and
 self-update triggers), and deployment create/retry/power actions. For a
 detailed per-deployment error trail instead of an audit trail, use that
 deployment's log stream and "Download full log" button instead.
@@ -594,9 +630,10 @@ deployment's log stream and "Download full log" button instead.
 A built-in "Documentation" tab (`frontend/src/wiki`), available to every
 signed-in user regardless of role, covers every configurable feature in the
 app: setup and updating, users/roles/2FA/sessions, organizations (including
-deleting one), hypervisors, ISO assets, disk layouts, templates and Windows
-roles (including the AD DS limitation above, stated plainly there too),
-deployments, troubleshooting a failed or stuck deployment, in-app and email
+deleting one), hypervisors, ISO assets, app assets, disk layouts, templates
+and Windows roles (including the AD DS limitation above, stated plainly
+there too), deployments, troubleshooting a failed or stuck deployment,
+in-app and email
 notifications, webhooks, backups, self-update, the audit log, and branding.
 Every article has a short "quick overview" (what it does, in plain language)
 and a full "deep dive" underneath (exact fields, defaults, and edge cases),
@@ -677,6 +714,11 @@ minimum effective role for the request's organization unless marked
 | POST | `.../iso-assets/{iso_id}/chunk` | operator | raw body, one chunk |
 | POST | `.../iso-assets/{iso_id}/finalize` | operator | assembles + checksums |
 | DELETE | `.../iso-assets/{iso_id}` | operator | |
+| GET/POST | `/api/organizations/{org_id}/app-assets` | readonly / operator | |
+| POST | `.../app-assets/{app_id}/chunk` | operator | raw body, one chunk |
+| POST | `.../app-assets/{app_id}/finalize` | operator | assembles + checksums |
+| DELETE | `.../app-assets/{app_id}` | operator | |
+| GET | `/api/deployments/{deployment_id}/app-assets/{app_id}/download?token=...` | none (deployment token) | guest-initiated, not a user session |
 | GET/POST | `/api/organizations/{org_id}/templates` | readonly / operator | |
 | PATCH/DELETE | `.../templates/{template_id}` | operator | org-owned only |
 | POST | `.../templates/{template_id}/clone` | operator | any visible template |
@@ -737,6 +779,8 @@ fills in `APP_SECRET_KEY` for you.
 | `APP_PUBLIC_URL` | no | `http://localhost:8000` | Base URL guest VMs use to reach `/api/callback`, must be reachable from provisioned VMs |
 | `ISO_STORAGE_PATH` | no | `/data/isos` | Permanent ISO and logo storage inside the `api`/`worker` containers |
 | `ISO_BUILD_TMP` | no | `/data/iso_build_tmp` | Scratch space for answer-file floppy builds and in-progress ISO uploads |
+| `APP_ASSET_STORAGE_PATH` | no | `/data/app_assets` | Permanent MSI/EXE installer storage, `api` container only (the worker never touches these bytes directly, the guest downloads them itself) |
+| `APP_ASSET_BUILD_TMP` | no | `/data/app_asset_build_tmp` | Scratch space for in-progress app asset uploads |
 | `BACKUP_DIR` | no | `/data/backups` | Where database backups are written and served from |
 | `TLS_CERTS_PATH` | no | `/data/tls` | Where an uploaded HTTPS certificate/key pair is stored, shared with the `proxy` container |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | no | `deploycore` / `deploycore` / `deploycore` | Postgres container credentials |

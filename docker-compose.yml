@@ -40,6 +40,8 @@ services:
       - ./scripts:/app/scripts
       - iso_storage:/data/isos
       - iso_build_tmp:/data/iso_build_tmp
+      - app_asset_storage:/data/app_assets
+      - app_asset_build_tmp:/data/app_asset_build_tmp
       - db_backups:/data/backups
       - tls_certs:/data/tls
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -102,6 +104,8 @@ volumes:
   postgres_data:
   iso_storage:
   iso_build_tmp:
+  app_asset_storage:
+  app_asset_build_tmp:
   db_backups:
   tls_certs:
   caddy_data:

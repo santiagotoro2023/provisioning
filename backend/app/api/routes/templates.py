@@ -6,6 +6,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.models.app_asset import AppAsset
 from app.models.deployment import Deployment
 from app.models.disk_layout import DiskLayout
 from app.models.iso_asset import IsoAsset
@@ -81,6 +82,7 @@ async def create_template(
     data.pop("local_admin_password")
     data.pop("domain_join_credential")
     data["post_install_scripts"] = [s.model_dump() for s in body.post_install_scripts]
+    data["app_installs"] = [a.model_dump(mode="json") for a in body.app_installs]
     data["local_admin_username"] = _resolve_local_admin_username(data["custom_admin_enabled"], data["local_admin_username"])
     template = DeploymentTemplate(org_id=org_id, **data)
     template.local_admin_password = body.local_admin_password
@@ -129,6 +131,12 @@ async def update_template(
     updates = body.model_dump(exclude_unset=True)
     if "post_install_scripts" in updates and updates["post_install_scripts"] is not None:
         updates["post_install_scripts"] = [s if isinstance(s, dict) else s.model_dump() for s in updates["post_install_scripts"]]
+    if "app_installs" in updates and updates["app_installs"] is not None:
+        # model_dump() already flattens AppInstallEntry to plain dicts, but
+        # leaves app_asset_id as a uuid.UUID object (JSON-unsafe); JSONB
+        # storage needs it stringified, same reason create_template uses
+        # model_dump(mode="json") for this field instead.
+        updates["app_installs"] = [{**entry, "app_asset_id": str(entry["app_asset_id"])} for entry in updates["app_installs"]]
     local_admin_password = updates.pop("local_admin_password", None)
     domain_join_credential = updates.pop("domain_join_credential", None)
     for field, value in updates.items():
@@ -218,6 +226,7 @@ async def clone_template(
         domain_join_timing=source.domain_join_timing,
         windows_features=list(source.windows_features),
         post_install_scripts=list(source.post_install_scripts),
+        app_installs=list(source.app_installs),
     )
     db.add(clone)
     await db.flush()
@@ -246,6 +255,10 @@ async def export_template(
     if disk_layout is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "template's disk layout not found")
     iso_asset = await db.get(IsoAsset, template.iso_asset_id) if template.iso_asset_id else None
+    app_install_hints = []
+    for entry in template.app_installs:
+        app_asset = await db.get(AppAsset, uuid.UUID(entry["app_asset_id"]))
+        app_install_hints.append(app_asset.name if app_asset else "(deleted app asset)")
 
     audit.record(
         db, action="template.export", target_type="template", org_id=org_id,
@@ -256,6 +269,7 @@ async def export_template(
         name=template.name,
         disk_layout=TemplateExportDiskLayout(name=disk_layout.name, layout=disk_layout.layout_json),
         iso_hint=TemplateExportIsoHint(filename=iso_asset.filename, kind=iso_asset.kind.value) if iso_asset else None,
+        app_install_hints=app_install_hints,
         cpu_count=template.cpu_count,
         cores_per_socket=template.cores_per_socket,
         ram_mb=template.ram_mb,

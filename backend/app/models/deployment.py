@@ -73,6 +73,14 @@ class Deployment(UUIDPKMixin, TimestampMixin, Base):
     # should keep reflecting what actually ran, not what those would
     # produce now.
     rendered_autounattend: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Ephemeral, generated right before app installs start in post_install
+    # and cleared right after (see provision.py): authenticates the guest's
+    # own Invoke-WebRequest calls to GET .../app-assets/{id}/download,
+    # there's no user session to authenticate those with, same reasoning
+    # as callback_token authenticating the Setup-complete callback. Scoped
+    # to the whole deployment (any app asset visible to its org), not one
+    # download, since a template can install more than one app.
+    app_asset_access_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # SET NULL, not RESTRICT: a user being deleted outright (Settings ->

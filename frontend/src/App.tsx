@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from "./state/auth";
 import { OrgProvider } from "./state/org";
 
 import AccountSettings from "./pages/AccountSettings";
+import AppAssets from "./pages/AppAssets";
 import AuditLog from "./pages/AuditLog";
 import Dashboard from "./pages/Dashboard";
 import DeploymentDetail from "./pages/DeploymentDetail";
@@ -51,6 +52,7 @@ function AppRoutes() {
         <Route path="disk-layouts" element={<DiskLayouts />} />
         <Route path="hypervisors" element={<Hypervisors />} />
         <Route path="iso-assets" element={<IsoAssets />} />
+        <Route path="app-assets" element={<AppAssets />} />
         <Route path="webhooks" element={<Webhooks />} />
         <Route path="users" element={<Users />} />
         <Route path="account" element={<AccountSettings />} />

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes import (
+    app_assets,
     audit_log,
     auth,
     callback,
@@ -54,6 +55,7 @@ app.include_router(users.router)
 app.include_router(hypervisors.router)
 app.include_router(disk_layouts.router)
 app.include_router(iso_assets.router)
+app.include_router(app_assets.router)
 app.include_router(templates.router)
 app.include_router(deployments.router)
 app.include_router(callback.router)
