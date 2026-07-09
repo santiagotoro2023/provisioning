@@ -91,6 +91,7 @@ export default function IsoAssets() {
           orgId={selectedOrgId}
           allowGlobal={isGlobalAdmin}
           onClose={() => setShowUpload(false)}
+          onCreated={load}
           onDone={async () => {
             setShowUpload(false);
             await load();
@@ -118,11 +119,13 @@ function UploadIsoForm({
   orgId,
   allowGlobal,
   onClose,
+  onCreated,
   onDone,
 }: {
   orgId: string;
   allowGlobal: boolean;
   onClose: () => void;
+  onCreated: () => void;
   onDone: () => void;
 }) {
   const kind: IsoKind = "windows_iso";
@@ -143,6 +146,7 @@ function UploadIsoForm({
       const finalizePath = scope === "global" ? "/iso-assets/global" : `/organizations/${orgId}/iso-assets`;
 
       const iso = await api.post<IsoAsset>(createPath, { filename: file.name, kind });
+      onCreated();
       let offset = 0;
       while (offset < file.size) {
         const chunk = file.slice(offset, offset + CHUNK_SIZE);
@@ -152,6 +156,7 @@ function UploadIsoForm({
           body: chunk,
         });
         if (!res.ok) throw new Error(`Chunk upload failed at offset ${offset}`);
+        if (offset === 0) onCreated(); // catches the pending -> uploading status flip
         offset += CHUNK_SIZE;
         setProgress(Math.min(100, Math.round((offset / file.size) * 100)));
       }

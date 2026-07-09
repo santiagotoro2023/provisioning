@@ -1,4 +1,4 @@
-import { Activity, CheckCircle2, Circle, Server, XCircle } from "lucide-react";
+import { Activity, Building2, CheckCircle2, Circle, Plus, Server, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
@@ -22,7 +22,7 @@ interface OrgOverview {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { selectedOrgId } = useOrg();
+  const { organizations, selectedOrgId } = useOrg();
   const isGlobalAdmin = !!user && roleAtLeast(user.global_role, "admin");
 
   return (
@@ -30,13 +30,52 @@ export default function Dashboard() {
       <AmbientBackground subtle />
       <div className="relative space-y-8">
         <h1 className="text-lg font-semibold">Dashboard</h1>
-        {isGlobalAdmin && <MspOverview />}
-        {selectedOrgId ? (
-          <OrgDashboard orgId={selectedOrgId} />
+        {organizations.length === 0 ? (
+          <NoOrganizationsCard canCreate={isGlobalAdmin} />
         ) : (
-          !isGlobalAdmin && <p className="text-sm text-neutral-500">Select an organization to view its dashboard.</p>
+          <>
+            {isGlobalAdmin && <MspOverview />}
+            {selectedOrgId ? (
+              <OrgDashboard orgId={selectedOrgId} />
+            ) : (
+              !isGlobalAdmin && <p className="text-sm text-neutral-500">Select an organization to view its dashboard.</p>
+            )}
+          </>
         )}
       </div>
+    </div>
+  );
+}
+
+function NoOrganizationsCard({ canCreate }: { canCreate: boolean }) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-neutral-200 bg-white p-10 text-center dark:border-neutral-700 dark:bg-neutral-900">
+      <Building2 size={28} strokeWidth={1.5} className="text-neutral-400" />
+      {canCreate ? (
+        <>
+          <div>
+            <h2 className="text-sm font-semibold">Create your first organization</h2>
+            <p className="mt-1 text-sm text-neutral-500">
+              An organization is a customer environment: its own hypervisors, ISOs, templates, and
+              deployments. Everything else in DeployCore lives inside one.
+            </p>
+          </div>
+          <Link
+            to="/organizations"
+            className="mt-1 flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            <Plus size={15} strokeWidth={2} />
+            New organization
+          </Link>
+        </>
+      ) : (
+        <div>
+          <h2 className="text-sm font-semibold">No organizations yet</h2>
+          <p className="mt-1 text-sm text-neutral-500">
+            You don't have access to any organization. Ask an admin to assign you a role.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

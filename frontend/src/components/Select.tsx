@@ -45,6 +45,7 @@ export default function Select({ className = "", value, onChange, children, disa
   const [rect, setRect] = useState<{ anchor: number; left: number; width: number; openUpward: boolean } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const adjustedForRef = useRef<string | null>(null);
   const options = parseOptions(children);
   const selected = options.find((o) => o.value === String(value ?? "")) ?? null;
 
@@ -58,9 +59,28 @@ export default function Select({ className = "", value, onChange, children, disa
   }
 
   useLayoutEffect(() => {
-    if (open) updatePosition();
+    if (open) {
+      adjustedForRef.current = null;
+      updatePosition();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // The list sizes to fit its own content (see the `width: max-content`
+  // below), which is only known once it's actually rendered, so a too-wide
+  // list (a long option label near the right edge of the screen) is
+  // nudged back on screen here rather than being computed up front.
+  useLayoutEffect(() => {
+    if (!open || !rect || !listRef.current) return;
+    const marker = `${rect.left}:${rect.anchor}`;
+    if (adjustedForRef.current === marker) return;
+    adjustedForRef.current = marker;
+    const listBox = listRef.current.getBoundingClientRect();
+    const overflowRight = listBox.right - (window.innerWidth - 8);
+    if (overflowRight > 0) {
+      setRect((r) => (r ? { ...r, left: Math.max(8, r.left - overflowRight) } : r));
+    }
+  }, [open, rect]);
 
   useEffect(() => {
     if (!open) return;
@@ -153,7 +173,9 @@ export default function Select({ className = "", value, onChange, children, disa
               top: rect.openUpward ? undefined : rect.anchor,
               bottom: rect.openUpward ? window.innerHeight - rect.anchor : undefined,
               left: rect.left,
-              width: rect.width,
+              minWidth: rect.width,
+              width: "max-content",
+              maxWidth: "min(24rem, 90vw)",
             }}
             className="z-50 mt-1 max-h-60 overflow-auto rounded-md border border-neutral-200 bg-white py-1 text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
           >

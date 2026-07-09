@@ -200,7 +200,7 @@ function CreateHypervisorForm({
         <Select className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm" value={type} onChange={(e) => setType(e.target.value as HypervisorType)}>
           <option value="esxi">ESXi</option>
         </Select>
-        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">API endpoint</label>
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">API endpoint (IP address or hostname)</label>
         <input className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={apiEndpoint} onChange={(e) => setApiEndpoint(e.target.value)} />
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Username</label>
         <input className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={username} onChange={(e) => setUsername(e.target.value)} />

@@ -59,7 +59,7 @@ export default function ConnectedDots({ opacity = 1 }: { opacity?: number }) {
     function step() {
       ctx!.clearRect(0, 0, width, height);
       const dark = isDark();
-      const dotColor = dark ? "rgba(147, 197, 253, 0.55)" : "rgba(37, 99, 235, 0.45)";
+      const dotColor = dark ? "rgba(147, 197, 253, 0.55)" : "rgba(29, 78, 216, 0.6)";
       const lineColor = dark ? "96, 165, 250" : "59, 130, 246";
 
       for (const p of points) {
@@ -77,7 +77,7 @@ export default function ConnectedDots({ opacity = 1 }: { opacity?: number }) {
           const b = points[j];
           const dist = Math.hypot(a.x - b.x, a.y - b.y);
           if (dist > MAX_LINK_DISTANCE) continue;
-          const lineOpacity = (1 - dist / MAX_LINK_DISTANCE) * 0.35 * opacity;
+          const lineOpacity = (1 - dist / MAX_LINK_DISTANCE) * (dark ? 0.35 : 0.45) * opacity;
           ctx!.strokeStyle = `rgba(${lineColor}, ${lineOpacity})`;
           ctx!.lineWidth = 1;
           ctx!.beginPath();

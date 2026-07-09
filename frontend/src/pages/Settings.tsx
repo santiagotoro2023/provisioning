@@ -204,11 +204,17 @@ function UpdatesPanel() {
     <div className="rounded-lg border border-neutral-200 bg-white p-5 dark:border-neutral-700 dark:bg-neutral-900">
       <h2 className="mb-1 text-sm font-semibold">Updates</h2>
       {!status.git_available ? (
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          Self-update is unavailable, this instance isn't running from a git checkout (or the updater
-          container couldn't resolve this repo's path). Update manually:{" "}
-          <code>git pull && docker compose up -d --build</code>.
-        </p>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">
+          <p className="mb-2">
+            Self-update is unavailable. Update manually:{" "}
+            <code>git pull && docker compose up -d --build</code>.
+          </p>
+          {status.error && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 p-2 font-mono text-[0.7rem] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-400">
+              {status.error}
+            </p>
+          )}
+        </div>
       ) : (
         <>
           <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
