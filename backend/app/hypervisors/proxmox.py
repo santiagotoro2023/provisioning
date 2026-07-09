@@ -20,6 +20,9 @@ class ProxmoxDriver(HypervisorDriver):
     async def detach_iso(self, vm_ref: str, unit: int) -> None:
         raise NotImplementedError(_NOT_IMPLEMENTED)
 
+    async def attach_floppy(self, vm_ref: str, floppy_path: str, unit: int = 0) -> None:
+        raise NotImplementedError(_NOT_IMPLEMENTED)
+
     async def set_boot_order(self, vm_ref: str, device_order: list[str]) -> None:
         raise NotImplementedError(_NOT_IMPLEMENTED)
 

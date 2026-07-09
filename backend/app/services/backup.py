@@ -14,7 +14,8 @@ def _pg_dump_uri() -> str:
 async def perform_backup() -> Path:
     """Shells out to pg_dump (custom format, already compressed) and prunes
     anything beyond the newest BACKUP_RETENTION_COUNT files. Same
-    never-shell-True posture as iso_builder.build_and_upload_answer_iso."""
+    never-shell-True posture as
+    floppy_builder.build_and_upload_answer_floppy."""
     backup_dir = Path(get_settings().backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
 

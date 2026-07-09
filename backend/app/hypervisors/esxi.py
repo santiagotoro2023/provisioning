@@ -189,6 +189,42 @@ class ESXiDriver(HypervisorDriver):
     async def attach_iso(self, vm_ref: str, iso_path: str, unit: int) -> None:
         await asyncio.to_thread(self._attach_iso_sync, vm_ref, iso_path, unit)
 
+    def _attach_floppy_sync(self, vm_ref: str, floppy_path: str, unit: int) -> None:
+        service_instance = self._connect_sync()
+        try:
+            vm = self._find_vm_sync(service_instance, vm_ref)
+            existing = next(
+                (
+                    d
+                    for d in vm.config.hardware.device
+                    if isinstance(d, vim.vm.device.VirtualFloppy) and d.unitNumber == unit
+                ),
+                None,
+            )
+            device_spec = vim.vm.device.VirtualDeviceSpec()
+            device_spec.device = existing or vim.vm.device.VirtualFloppy()
+            device_spec.operation = (
+                vim.vm.device.VirtualDeviceSpec.Operation.edit
+                if existing
+                else vim.vm.device.VirtualDeviceSpec.Operation.add
+            )
+            if not existing:
+                device_spec.device.unitNumber = unit
+                # No explicit controllerKey: unlike IDE/SCSI, there's no
+                # separate VirtualFloppyController device type in the API
+                # to reference, the floppy bus is implicit on every VM.
+                device_spec.device.connectable = vim.vm.device.VirtualDevice.ConnectInfo()
+            device_spec.device.backing = vim.vm.device.VirtualFloppy.ImageBackingInfo(fileName=floppy_path)
+            device_spec.device.connectable.connected = True
+            device_spec.device.connectable.startConnected = True
+            config = vim.vm.ConfigSpec(deviceChange=[device_spec])
+            WaitForTask(vm.ReconfigVM_Task(spec=config))
+        finally:
+            connect.Disconnect(service_instance)
+
+    async def attach_floppy(self, vm_ref: str, floppy_path: str, unit: int = 0) -> None:
+        await asyncio.to_thread(self._attach_floppy_sync, vm_ref, floppy_path, unit)
+
     def _detach_iso_sync(self, vm_ref: str, unit: int) -> None:
         service_instance = self._connect_sync()
         try:

@@ -505,17 +505,26 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
             <List
               items={[
                 <>The pipeline runs in the background worker, not the request that created it: it renders
-                  the answer file, builds a per-deployment answer-file ISO, uploads both ISOs to the
-                  hypervisor, creates the VM (UEFI firmware, PVSCSI controller), attaches media, and
-                  powers on. The Windows ISO itself is only ever uploaded to a given hypervisor's datastore
-                  once per ISO asset, not once per deployment: a second deployment from the same template
-                  (or a bulk deployment creating many at once) reuses the copy already there instead of
-                  re-transferring a multi-gigabyte file every time.</>,
+                  the answer file, builds a per-deployment answer-file floppy image, uploads the Windows
+                  ISO and the floppy to the hypervisor datastore, creates the VM (UEFI firmware, PVSCSI
+                  controller), attaches media, and powers on. The Windows ISO itself is only ever uploaded
+                  to a given hypervisor's datastore once per ISO asset, not once per deployment: a second
+                  deployment from the same template (or a bulk deployment creating many at once) reuses
+                  the copy already there instead of re-transferring a multi-gigabyte file every time.</>,
+                <>The answer file ships on a floppy image, not a second CD-ROM: Windows Setup's very
+                  first implicit answer-file check, the one deciding whether to show the interactive
+                  language/time/keyboard screen, runs before its driver stack is fully up and doesn't
+                  reliably see a second CD-ROM at that point, but a floppy is both checked earlier and
+                  higher-precedence (Microsoft's own documented search order), so the whole install stays
+                  unattended instead of stalling on that one screen.</>,
                 <>Windows Setup's own boot loader shows a "Press any key to boot from CD or DVD..."
-                  prompt for optical boot media, with nobody at the console to press it, so right after
-                  power-on DeployCore sends a synthetic Enter keypress to the VM every couple of seconds
-                  for about a minute (the exact timing varies with the host, and the VM's boot order also
-                  auto-retries on its own if the whole sequence fails) until it lands during that window.</>,
+                  prompt before it'll boot the Windows ISO itself, in both BIOS and EFI mode, with nobody
+                  at the console to press it, so right after power-on DeployCore sends a synthetic Enter
+                  keypress to the VM every second for about 15 seconds (long enough to bracket when that
+                  prompt actually appears, short enough to stop before Setup's GUI is up and blind Enters
+                  would start landing on it instead). The VM's boot order also auto-retries on its own
+                  (ESXi's <Code>bootRetryEnabled</Code>) if the whole boot sequence fails, since a freshly
+                  attached CD-ROM isn't always connected the instant the VM powers on.</>,
                 <>The guest calls back to DeployCore once Windows Setup finishes (a single-use token per
                   deployment), which is what advances the state from booting to installing_os.</>,
                 <>Post-install runs over WinRM once the guest reports an IP: apply static network config
@@ -595,6 +604,11 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   (Settings → deployment timeout, default 90 minutes) doing its job, not a bug, something
                   legitimately took longer than expected. Raise the timeout for that organization if slow
                   installs are normal in your environment (a slow datastore, for example).</>,
+                <><strong>Windows Setup ran but the install looked interactive, not unattended?</strong>{" "}
+                  Something in the answer file is off for that particular template/deployment (an
+                  unusual character in a password, a role name, ...). <strong>View answer file</strong>{" "}
+                  on the deployment's detail page shows the exact XML that shipped, compare it against
+                  what you expected.</>,
                 <><strong>Once you've found the cause</strong>, fix it (attach an ISO, correct the network
                   name, whatever it was) and use <strong>Retry</strong> on the deployment's detail page: it
                   always creates a completely fresh VM from <Code>pending</Code>, nothing from the failed

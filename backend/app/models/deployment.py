@@ -63,6 +63,9 @@ class Deployment(UUIDPKMixin, TimestampMixin, Base):
     callback_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     callback_token_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     vm_moref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Datastore path of the answer-file media (a floppy image, despite the
+    # name, see floppy_builder.py) for this deployment; cleared once
+    # deleted from the datastore, success or fail (see provision.py).
     answer_iso_remote_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # The exact autounattend.xml this deployment actually shipped, stored
     # once rendered (see provision.py), not re-derived on demand: the

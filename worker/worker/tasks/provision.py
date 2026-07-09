@@ -17,15 +17,14 @@ from app.models.iso_asset import IsoAsset, IsoKind
 from app.models.template import DeploymentTemplate, DomainJoinTiming
 from app.services import notifications, settings_resolver, webhooks
 from app.services.deployment_service import DeploymentStateMachine, InvalidTransition, log
-from app.services.iso_builder import build_and_upload_answer_iso
+from app.services.floppy_builder import build_and_upload_answer_floppy
 from app.services.template_render import render_autounattend
 from app.winrm.client import WinRMClient, netmask_to_prefix
 
 _state_machine = DeploymentStateMachine()
 
 WINDOWS_ISO_UNIT = 0
-ANSWER_ISO_UNIT = 1
-VIRTIO_ISO_UNIT = 2
+VIRTIO_ISO_UNIT = 1
 
 CALLBACK_POLL_INTERVAL_SECONDS = 15
 
@@ -54,11 +53,11 @@ async def _get_virtio_iso(db, org_id: uuid.UUID) -> IsoAsset | None:
     return result.scalars().first()
 
 
-async def _cleanup_answer_iso(driver: HypervisorDriver, deployment: Deployment) -> None:
+async def _cleanup_answer_floppy(driver: HypervisorDriver, deployment: Deployment) -> None:
     if deployment.answer_iso_remote_path:
         try:
             await driver.delete_iso_from_datastore(deployment.answer_iso_remote_path)
-        except Exception:  # noqa: BLE001 - best-effort cleanup, already-failed deployment
+        except Exception:  # noqa: BLE001 - best-effort cleanup
             pass
         deployment.answer_iso_remote_path = None
 
@@ -73,7 +72,7 @@ async def _fail(
         # so the state history stays readable while the full trace is still
         # one scroll away in the log stream.
         await log(db, deployment, deployment.state.value, traceback_text, level=LogLevel.ERROR)
-    await _cleanup_answer_iso(driver, deployment)
+    await _cleanup_answer_floppy(driver, deployment)
     if deployment.vm_moref:
         try:
             await driver.delete_vm(deployment.vm_moref)
@@ -126,10 +125,10 @@ async def run_deployment(ctx, deployment_id: str) -> None:
             rendered_xml = render_autounattend(deployment, template, disk_layout)
             deployment.rendered_autounattend = rendered_xml
 
-            current_step = "building and uploading the answer-file ISO"
-            await log(db, deployment, "creating_vm", f"building answer-file ISO for {deployment.hostname}")
-            answer_iso_remote_path = await build_and_upload_answer_iso(driver, deployment, rendered_xml)
-            deployment.answer_iso_remote_path = answer_iso_remote_path
+            current_step = "building and uploading the answer-file floppy"
+            await log(db, deployment, "creating_vm", f"building answer-file floppy for {deployment.hostname}")
+            answer_floppy_remote_path = await build_and_upload_answer_floppy(driver, deployment, rendered_xml)
+            deployment.answer_iso_remote_path = answer_floppy_remote_path
             await db.commit()
 
             current_step = "uploading the Windows ISO to the datastore"
@@ -167,8 +166,8 @@ async def run_deployment(ctx, deployment_id: str) -> None:
             current_step = "attaching the Windows ISO"
             await driver.attach_iso(vm_ref, windows_iso_remote_path, WINDOWS_ISO_UNIT)
 
-            current_step = "attaching the answer-file ISO"
-            await driver.attach_iso(vm_ref, answer_iso_remote_path, ANSWER_ISO_UNIT)
+            current_step = "attaching the answer-file floppy"
+            await driver.attach_floppy(vm_ref, answer_floppy_remote_path)
 
             if defaults["requires_driver_injection"]:
                 current_step = "attaching the VirtIO driver ISO"
@@ -341,7 +340,7 @@ async def run_post_install(ctx, deployment_id: str) -> None:
             else:
                 raise RuntimeError("guest did not come back reachable after the post-install reboot")
 
-            await _cleanup_answer_iso(driver, deployment)
+            await _cleanup_answer_floppy(driver, deployment)
             await _state_machine.transition(db, deployment, DeploymentState.COMPLETED)
             await log(db, deployment, "completed", "deployment finished successfully")
             notifications.notify(

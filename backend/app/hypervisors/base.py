@@ -51,6 +51,12 @@ class HypervisorDriver(ABC):
     async def detach_iso(self, vm_ref: str, unit: int) -> None: ...
 
     @abstractmethod
+    async def attach_floppy(self, vm_ref: str, floppy_path: str, unit: int = 0) -> None:
+        """Used for the answer-file floppy specifically, see
+        floppy_builder.py's docstring for why a floppy rather than a
+        second CD-ROM."""
+
+    @abstractmethod
     async def set_boot_order(self, vm_ref: str, device_order: list[str]) -> None: ...
 
     @abstractmethod

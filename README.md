@@ -17,7 +17,8 @@ gets their own isolated organization, its own hypervisors, its own templates,
 its own audit trail, all inside one instance with role-based access control.
 
 If you've used Foreman for Linux/PXE provisioning, this is the same idea,
-narrowed to Windows Server and built around answer-file ISOs instead of PXE.
+narrowed to Windows Server and built around unattended answer files instead
+of PXE.
 
 ## Quickstart
 
@@ -378,10 +379,20 @@ pending → creating_vm → booting → installing_os → post_install → confi
   go, hostnamed `PREFIX01`, `PREFIX02`, etc. DHCP only, bulk doesn't attempt
   per-VM static IP allocation
 - Pipeline (runs in the background worker, not the request thread): renders
-  the answer file, builds a per-deployment answer-file ISO, uploads the
-  Windows ISO and the answer-file ISO to the hypervisor datastore, creates
-  the VM (UEFI firmware, PVSCSI controller on ESXi), attaches media, powers
-  on. The guest's
+  the answer file, builds a per-deployment answer-file floppy image,
+  uploads the Windows ISO and the answer-file floppy to the hypervisor
+  datastore, creates the VM (UEFI firmware, PVSCSI controller on ESXi),
+  attaches media (a floppy, not a second CD-ROM: Windows Setup's very
+  first implicit answer-file check, the one that decides whether to show
+  the interactive language/time/keyboard screen, runs before its driver
+  stack is fully up and doesn't reliably see a second CD-ROM at that
+  point, a floppy is both checked earlier and higher-precedence), sets
+  the boot order with a retry (ESXi's `bootRetryEnabled`, since a
+  freshly attached CD-ROM isn't always connected the instant the VM
+  powers on) and sends a synthetic Enter keypress for a few seconds
+  right after power-on (Windows Setup's boot loader waits for a keypress
+  before booting from optical media, in both BIOS and EFI mode, with
+  nobody at the console to give it one), then powers on. The guest's
   `FirstLogonCommands` enable WinRM and call back to
   `/api/callback/{token}` (single-use per-deployment token) once Windows
   Setup finishes, which is what advances `booting → installing_os`
@@ -391,15 +402,15 @@ pending → creating_vm → booting → installing_os → post_install → confi
   configured for `post_install` timing, reboot, verify the guest comes back
   reachable, then mark `completed`
 - Error tracing: every major pipeline step (rendering the answer file,
-  uploading each ISO, creating the VM, attaching media, setting boot order,
-  powering on, each post-install action) updates a current-step marker
-  before it runs. If any step raises, the failure message states exactly
-  which step failed, and the full Python traceback is captured as a
-  separate error-level log line
-- Cleanup: the answer-file ISO (contains a plaintext local admin password)
-  is deleted from the hypervisor datastore and from local disk on both
-  success and failure; a failed deployment's partially-created VM is
-  deleted before the deployment is marked `failed`
+  uploading the Windows ISO and the answer-file floppy, creating the VM,
+  attaching media, setting boot order, powering on, each post-install
+  action) updates a current-step marker before it runs. If any step
+  raises, the failure message states exactly which step failed, and the
+  full Python traceback is captured as a separate error-level log line
+- Cleanup: the answer-file floppy image (contains a plaintext local admin
+  password) is deleted from the hypervisor datastore and from local disk
+  on both success and failure; a failed deployment's partially-created VM
+  is deleted before the deployment is marked `failed`
 - Timeout: a background cron job force-fails any deployment stuck past its
   stage timeout (`os_install_timeout_minutes` setting, default 90, editable
   per organization from Settings) and runs the same cleanup
@@ -648,7 +659,7 @@ fills in `APP_SECRET_KEY` for you.
 | `REDIS_URL` | yes | none | `redis://...`, shared by arq, the login rate limiter, and session tracking |
 | `APP_PUBLIC_URL` | no | `http://localhost:8000` | Base URL guest VMs use to reach `/api/callback`, must be reachable from provisioned VMs |
 | `ISO_STORAGE_PATH` | no | `/data/isos` | Permanent ISO and logo storage inside the `api`/`worker` containers |
-| `ISO_BUILD_TMP` | no | `/data/iso_build_tmp` | Scratch space for answer-file ISO builds and in-progress uploads |
+| `ISO_BUILD_TMP` | no | `/data/iso_build_tmp` | Scratch space for answer-file floppy builds and in-progress ISO uploads |
 | `BACKUP_DIR` | no | `/data/backups` | Where database backups are written and served from |
 | `TLS_CERTS_PATH` | no | `/data/tls` | Where an uploaded HTTPS certificate/key pair is stored, shared with the `proxy` container |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | no | `deploycore` / `deploycore` / `deploycore` | Postgres container credentials |
@@ -683,10 +694,11 @@ Tests cover: RBAC enforcement (every mutating route rejected below its
 floor), autounattend.xml rendering (domain-join present/absent/deferred,
 disk layout variants including the recovery partition), deployment state
 machine (every legal/illegal transition, retry semantics), Fernet credential
-round-trip, ISO-builder temp-directory cleanup on both success and
-subprocess failure, deployment/hypervisor/audit-log org-scoping, global vs
-org-scoped ISO assets, organization deletion (cascades correctly, audit log
-survives it, global-admin only), and HTTPS certificate/key pair validation
+round-trip, answer-file floppy builder temp-directory cleanup on both
+success and subprocess failure, deployment/hypervisor/audit-log
+org-scoping, global vs org-scoped ISO assets, organization deletion
+(cascades correctly, audit log survives it, global-admin only), and HTTPS
+certificate/key pair validation
 (matching key rejected if it doesn't, expired certificates rejected,
 garbage input rejected).
 
