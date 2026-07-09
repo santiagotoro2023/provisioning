@@ -704,16 +704,13 @@ function OrgSettingsPanel() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Deployment settings</h2>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Applies to this organization only.</p>
-      </div>
-
       <form onSubmit={saveTimeout} className="max-w-md rounded-lg border border-neutral-200 bg-white p-5 dark:border-neutral-700 dark:bg-neutral-900">
-        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Deployment timeout (minutes)</label>
-        <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
+        <h2 className="mb-1 text-sm font-semibold">Deployment timeout</h2>
+        <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
           A deployment stuck past this many minutes in any non-terminal stage is force-failed automatically.
+          Applies to this organization only.
         </p>
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Minutes</label>
         <input
           type="number"
           min={1}
