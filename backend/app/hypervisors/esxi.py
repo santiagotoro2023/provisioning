@@ -134,8 +134,12 @@ class ESXiDriver(HypervisorDriver):
             config.deviceChange = [controller, disk_spec, nic_spec]
 
             task = vm_folder.CreateVM_Task(config=config, pool=resource_pool)
-            new_vm = WaitForTask(task)
-            return new_vm._moId
+            # WaitForTask's return value is the task's State enum
+            # ("success"/"error"), not its result, it just raises on error
+            # (the default raiseOnError=True) so getting past this line at
+            # all means it succeeded; the created VM itself is task.info.result.
+            WaitForTask(task)
+            return task.info.result._moId
         finally:
             connect.Disconnect(service_instance)
 
