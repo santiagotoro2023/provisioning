@@ -1,5 +1,11 @@
 <img src="docs/brand/deploycore-lockup.svg" alt="DeployCore" width="360" />
 
+**Contents:** [Quickstart](#quickstart) · [First run, step by step](#first-run-step-by-step) ·
+[Updating](#updating) · [Roles and multi-tenancy](#roles-and-multi-tenancy) ·
+[Capabilities](#capabilities) · [API reference](#api-reference) ·
+[Environment variables](#environment-variables) · [Development](#development) ·
+[Uninstalling](#uninstalling) · [Known limitations](#known-limitations)
+
 DeployCore turns "provision a Windows Server VM" from a manual, error-prone
 routine into a few clicks. Point it at your ESXi hosts, upload a Windows
 Server ISO once, define what a server should look like (disk layout, roles,
@@ -131,7 +137,7 @@ no explicit role) grants no access anywhere.
 |---|---|
 | `readonly` | View everything in organizations they're scoped to |
 | `operator` | Everything `readonly` can, plus: create/retry/bulk-create deployments, power on/shut down/power off a deployment's VM, create/edit/delete disk layouts, templates, and ISO assets, clone/export/import templates and disk layouts |
-| `admin` | Everything `operator` can, plus: create/edit organizations, manage hypervisor hosts and webhooks (including credentials/secrets) and run their test buttons, delete a deployment's VM, edit organization/global settings, manage users and their org-role assignments (global-admin only), rename the instance and manage its logo (global-admin only), configure M365 email and trigger backups/updates (global-admin only) |
+| `admin` | Everything `operator` can, plus: create/edit organizations, manage hypervisor hosts and webhooks (including credentials/secrets) and run their test buttons, delete a deployment's VM, edit organization/global settings, manage users and their global or org-role assignments (global-admin only), delete an organization outright (global-admin only), rename the instance and manage its logo (global-admin only), configure M365 email and trigger backups/updates (global-admin only) |
 
 RBAC is enforced server-side on every route (a dependency resolves the
 caller's effective role for the request's organization and returns `403`
@@ -194,13 +200,28 @@ org-scoped copy.
 ### Organizations
 - List (scoped to what the caller can see: all orgs for a global-role user,
   else only orgs they have an explicit role in), create, view, edit
-  (name/description/active flag), no delete (deactivate instead)
+  (name/description/active flag)
+- Delete (global-admin only): permanently removes the organization and
+  everything scoped to it (hypervisors, disk layouts, templates, ISO
+  assets and their files on disk, deployments, webhooks, settings, every
+  user's role assignment for it), gated behind a confirmation dialog that
+  spells out what's about to go. Audit log rows for the organization
+  survive with their org reference cleared, so there's still a permanent
+  record the deletion happened. Doesn't touch any VM already created on
+  the organization's hypervisors, only DeployCore's own record of how to
+  reach them
 
 ### Users
 - Global admin only: list, create (username/password/display name/optional
   email/global role), edit (display name/global role/active flag/password),
-  assign or remove a per-organization role, force-logout (revokes every
-  active session for that user immediately)
+  force-logout (revokes every active session for that user immediately)
+- Access is managed inline from the Users list: an "Assign..." dropdown
+  next to each user's existing roles offers every organization they don't
+  already have a role in, plus a "Global (all organizations)" option at
+  the top for granting or changing their global role the same way, no
+  separate edit form needed just for that. A user's global access (when
+  they have one) shows as its own removable "Global: role" badge alongside
+  their per-organization ones
 - Users are identified and log in by username, not email. Email is optional,
   used only for M365 notification delivery if configured (see below)
 - Each user can set their own profile picture (Account page: PNG or JPEG,
@@ -259,11 +280,14 @@ org-scoped copy.
   org and can be cloned into an org-scoped copy)
 - Fields: name, Windows ISO (nullable, a template can exist before an ISO
   is attached; the pipeline refuses to deploy from it until one is set),
-  disk layout, CPU count, RAM (MB), disk size (GB), network name, VLAN ID,
-  locale/timezone/keyboard layout, local administrator password
-  (write-only), optional domain join (FQDN, join account, join credential
-  [write-only], target OU, and timing, `answer_file` bakes the join into
-  the unattended install, `post_install` joins afterward over WinRM),
+  disk layout, CPU count and cores per socket, RAM (MB), disk size (GB) and
+  disk provisioning type (thin / thick lazily zeroed / thick eagerly
+  zeroed), network name and network adapter type (VMXNET3, E1000, or
+  E1000E), VLAN ID, locale/timezone/keyboard layout, local administrator
+  password (write-only), optional domain join (FQDN, join account, join
+  credential [write-only], target OU, and timing, `answer_file` bakes the
+  join into the unattended install, `post_install` joins afterward over
+  WinRM),
   Windows roles/features picked as checkboxes from a curated list scoped to
   what a standalone Windows Server actually needs (AD Domain Services, DNS,
   DHCP, Web Server (IIS), Print Services, Remote Desktop Session Host, DFS
@@ -432,9 +456,10 @@ deployment's log stream and "Download full log" button instead.
 ### Documentation
 A built-in "Documentation" tab (`frontend/src/wiki`), available to every
 signed-in user regardless of role, covers every configurable feature in the
-app: setup and updating, users/roles/2FA/sessions, organizations,
-hypervisors, ISO assets, disk layouts, templates and Windows roles (including
-the AD DS limitation above, stated plainly there too), deployments, email
+app: setup and updating, users/roles/2FA/sessions, organizations (including
+deleting one), hypervisors, ISO assets, disk layouts, templates and Windows
+roles (including the AD DS limitation above, stated plainly there too),
+deployments, troubleshooting a failed or stuck deployment, in-app and email
 notifications, webhooks, backups, self-update, the audit log, and branding.
 Every article has a short "quick overview" (what it does, in plain language)
 and a full "deep dive" underneath (exact fields, defaults, and edge cases),
@@ -446,7 +471,7 @@ Blue accent color for primary actions/links/icons against a neutral light
 theme by default, with a full dark mode (toggle in the header, remembers
 your choice, and applied consistently across every page, including native
 form controls like checkboxes and scrollbars via `color-scheme`). Scaled up
-roughly 10% from a typical dense admin-UI baseline. Every dropdown in the
+roughly 16% from a typical dense admin-UI baseline. Every dropdown in the
 app is a fully custom-built listbox component, not a raw `<select>`, so it
 can actually be restyled (and is) instead of falling back to the browser's
 own unstyled popup; its option list renders through a portal so it's never
@@ -465,9 +490,10 @@ browser-tab favicon, `frontend/src/components/BrandMark.tsx` and
 `frontend/public/favicon.svg`), shown in the sidebar and sign-in screen
 until an MSP uploads their own logo (Settings → MSP Organization), which
 then takes its place everywhere the same way. The sign-in and setup-wizard
-screens sit on a subtly animated background (soft blurred shapes drifting
-slowly, plus a faint network of slowly-moving connected dots), matching
-the light/dark theme and respecting `prefers-reduced-motion`.
+screens, and the Dashboard behind its cards, all sit on the same subtly
+animated background (soft blurred shapes drifting slowly, plus a network
+of slowly-moving connected dots), matching the light/dark theme and
+respecting `prefers-reduced-motion`.
 
 ## API reference
 
@@ -493,6 +519,7 @@ minimum effective role for the request's organization unless marked
 | GET | `/api/auth/me` | authenticated | current user + org-role map |
 | GET/POST | `/api/organizations` | readonly / admin (global) | |
 | GET/PATCH | `/api/organizations/{org_id}` | readonly / admin | |
+| DELETE | `/api/organizations/{org_id}` | admin (global) | cascades to everything scoped to it, destructive |
 | GET/POST | `/api/users` | admin (global) | |
 | GET/PATCH | `/api/users/{user_id}` | admin (global) | |
 | POST/DELETE | `/api/users/{user_id}/org-roles[/{org_id}]` | admin (global) | |
@@ -597,7 +624,9 @@ floor), autounattend.xml rendering (domain-join present/absent/deferred,
 disk layout variants including the recovery partition), deployment state
 machine (every legal/illegal transition, retry semantics), Fernet credential
 round-trip, ISO-builder temp-directory cleanup on both success and
-subprocess failure, deployment/hypervisor org-scoping.
+subprocess failure, deployment/hypervisor/audit-log org-scoping, global vs
+org-scoped ISO assets, and organization deletion (cascades correctly, audit
+log survives it, global-admin only).
 
 ## Uninstalling
 
@@ -644,6 +673,11 @@ rm -rf deploycore
   after the server comes up.
 - No VM lifecycle beyond create/power-on/power-off/delete (no snapshots,
   migration, resize, clone-as-VM).
+- Templates cover the ESXi VM-creation options actually worth setting per
+  template (CPU/cores-per-socket, RAM, disk size and provisioning type,
+  network name and adapter type); things like VM hardware version, CPU/MMU
+  virtualization mode, reservations/limits, or VM encryption aren't exposed
+  and use ESXi's own defaults.
 - No LDAP/SSO, local username+password accounts only (with optional TOTP
   2FA).
 - Notifications: in-app is always on; email requires configuring Microsoft

@@ -14,6 +14,18 @@ class DomainJoinTiming(str, enum.Enum):
     POST_INSTALL = "post_install"
 
 
+class DiskProvisioning(str, enum.Enum):
+    THIN = "thin"
+    THICK_LAZY_ZEROED = "thick_lazy_zeroed"
+    THICK_EAGER_ZEROED = "thick_eager_zeroed"
+
+
+class NetworkAdapterType(str, enum.Enum):
+    VMXNET3 = "vmxnet3"
+    E1000 = "e1000"
+    E1000E = "e1000e"
+
+
 class DeploymentTemplate(UUIDPKMixin, TimestampMixin, Base):
     __tablename__ = "deployment_templates"
 
@@ -32,9 +44,16 @@ class DeploymentTemplate(UUIDPKMixin, TimestampMixin, Base):
     )
 
     cpu_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    cores_per_socket: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     ram_mb: Mapped[int] = mapped_column(Integer, nullable=False)
     disk_size_gb: Mapped[int] = mapped_column(Integer, nullable=False)
+    disk_provisioning: Mapped[DiskProvisioning] = enum_column(
+        DiskProvisioning, "disk_provisioning", default=DiskProvisioning.THIN, nullable=False
+    )
     network_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    network_adapter_type: Mapped[NetworkAdapterType] = enum_column(
+        NetworkAdapterType, "network_adapter_type", default=NetworkAdapterType.VMXNET3, nullable=False
+    )
     vlan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     locale: Mapped[str] = mapped_column(String(20), default="en-US", nullable=False)

@@ -136,11 +136,14 @@ async def run_deployment(ctx, deployment_id: str) -> None:
             spec = VmSpec(
                 name=deployment.hostname,
                 cpu_count=template.cpu_count,
+                cores_per_socket=template.cores_per_socket,
                 ram_mb=template.ram_mb,
                 disk_size_gb=template.disk_size_gb,
+                disk_provisioning=template.disk_provisioning.value,
                 firmware=defaults["firmware"],
                 scsi_controller=defaults["scsi_controller"],
                 network_name=template.network_name,
+                network_adapter_type=template.network_adapter_type.value,
                 datastore=host.default_datastore,
             )
             vm_ref = await driver.create_vm(spec)

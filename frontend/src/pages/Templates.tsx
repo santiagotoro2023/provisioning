@@ -6,7 +6,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import DataTable from "../components/DataTable";
 import Select from "../components/Select";
 import { downloadJson, readJsonFile } from "../lib/jsonFile";
-import { DeploymentTemplate, DiskLayout, IsoAsset } from "../api/types";
+import { DeploymentTemplate, DiskLayout, DiskProvisioning, IsoAsset, NetworkAdapterType } from "../api/types";
 import { useAuth, roleAtLeast } from "../state/auth";
 import { useOrg } from "../state/org";
 
@@ -126,7 +126,11 @@ export default function Templates() {
             header: "Windows ISO",
             render: (t) => (t.iso_asset_id ? <Badge value="ok" /> : <Badge value="failed" />),
           },
-          { key: "sizing", header: "CPU / RAM / Disk", render: (t) => `${t.cpu_count} vCPU / ${t.ram_mb} MB / ${t.disk_size_gb} GB` },
+          {
+            key: "sizing",
+            header: "CPU / RAM / Disk",
+            render: (t) => `${t.cpu_count} vCPU (${t.cores_per_socket}/socket) / ${t.ram_mb} MB / ${t.disk_size_gb} GB`,
+          },
           { key: "domain", header: "Domain join", render: (t) => (t.domain_join_enabled ? t.domain_fqdn : "Workgroup") },
           { key: "features", header: "Roles", render: (t) => t.windows_features.join(", ") || "(none)" },
           {
@@ -230,9 +234,12 @@ function TemplateForm({
   const [isoAssetId, setIsoAssetId] = useState(existing?.iso_asset_id ?? isoAssets[0]?.id ?? "");
   const [diskLayoutId, setDiskLayoutId] = useState(existing?.disk_layout_id ?? "");
   const [cpuCount, setCpuCount] = useState(existing?.cpu_count ?? 2);
+  const [coresPerSocket, setCoresPerSocket] = useState(existing?.cores_per_socket ?? 1);
   const [ramMb, setRamMb] = useState(existing?.ram_mb ?? 4096);
   const [diskSizeGb, setDiskSizeGb] = useState(existing?.disk_size_gb ?? 80);
+  const [diskProvisioning, setDiskProvisioning] = useState<DiskProvisioning>(existing?.disk_provisioning ?? "thin");
   const [networkName, setNetworkName] = useState(existing?.network_name ?? "");
+  const [networkAdapterType, setNetworkAdapterType] = useState<NetworkAdapterType>(existing?.network_adapter_type ?? "vmxnet3");
   const [localAdminPassword, setLocalAdminPassword] = useState("");
   const [domainJoinEnabled, setDomainJoinEnabled] = useState(existing?.domain_join_enabled ?? false);
   const [domainFqdn, setDomainFqdn] = useState(existing?.domain_fqdn ?? "");
@@ -257,9 +264,12 @@ function TemplateForm({
       iso_asset_id: isoAssetId || null,
       disk_layout_id: diskLayoutId,
       cpu_count: cpuCount,
+      cores_per_socket: coresPerSocket,
       ram_mb: ramMb,
       disk_size_gb: diskSizeGb,
+      disk_provisioning: diskProvisioning,
       network_name: networkName,
+      network_adapter_type: networkAdapterType,
       local_admin_password: localAdminPassword,
       domain_join_enabled: domainJoinEnabled,
       domain_fqdn: domainJoinEnabled ? domainFqdn : null,
@@ -316,10 +326,14 @@ function TemplateForm({
           </div>
         </div>
 
-        <div className="mb-3 grid grid-cols-3 gap-3">
+        <div className="mb-3 grid grid-cols-4 gap-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">vCPU</label>
             <input type="number" className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={cpuCount} onChange={(e) => setCpuCount(Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Cores/socket</label>
+            <input type="number" min={1} className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={coresPerSocket} onChange={(e) => setCoresPerSocket(Number(e.target.value))} />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">RAM (MB)</label>
@@ -331,12 +345,28 @@ function TemplateForm({
           </div>
         </div>
 
+        <div className="mb-3">
+          <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Disk provisioning</label>
+          <Select className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm" value={diskProvisioning} onChange={(e) => setDiskProvisioning(e.target.value as DiskProvisioning)}>
+            <option value="thin">Thin provision</option>
+            <option value="thick_lazy_zeroed">Thick provision, lazily zeroed</option>
+            <option value="thick_eager_zeroed">Thick provision, eagerly zeroed</option>
+          </Select>
+        </div>
+
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Network name</label>
         <p className="mb-1 text-xs text-neutral-400">
           The port group / vSwitch network name exactly as it appears in ESXi or vCenter networking, not a
           Windows network name, this is what the new VM's virtual NIC attaches to.
         </p>
-        <input className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={networkName} onChange={(e) => setNetworkName(e.target.value)} />
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <input className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={networkName} onChange={(e) => setNetworkName(e.target.value)} />
+          <Select className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm" value={networkAdapterType} onChange={(e) => setNetworkAdapterType(e.target.value as NetworkAdapterType)}>
+            <option value="vmxnet3">VMXNET3</option>
+            <option value="e1000">E1000</option>
+            <option value="e1000e">E1000E</option>
+          </Select>
+        </div>
 
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
           Local administrator password{isEdit && " (leave blank to keep unchanged)"}

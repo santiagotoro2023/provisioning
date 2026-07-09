@@ -2,10 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* scales the whole app about 10%: Tailwind's spacing/type scale is rem
-   based, so bumping the root font size scales it all proportionally */
+/* scales the whole app up: Tailwind's spacing/type scale is rem based, so
+   bumping the root font size scales it all proportionally */
 html {
-  font-size: 110%;
+  font-size: 116%;
   color-scheme: light;
 }
 

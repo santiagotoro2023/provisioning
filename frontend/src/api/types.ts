@@ -66,6 +66,8 @@ export interface IsoAsset {
 }
 
 export type DomainJoinTiming = "answer_file" | "post_install";
+export type DiskProvisioning = "thin" | "thick_lazy_zeroed" | "thick_eager_zeroed";
+export type NetworkAdapterType = "vmxnet3" | "e1000" | "e1000e";
 
 export interface PostInstallScript {
   name: string;
@@ -79,9 +81,12 @@ export interface DeploymentTemplate {
   iso_asset_id: string | null;
   disk_layout_id: string;
   cpu_count: number;
+  cores_per_socket: number;
   ram_mb: number;
   disk_size_gb: number;
+  disk_provisioning: DiskProvisioning;
   network_name: string;
+  network_adapter_type: NetworkAdapterType;
   vlan_id: number | null;
   locale: string;
   timezone: string;

@@ -53,6 +53,26 @@ psql_exec() {
   psql "$PSQL_URL" -t -A -q -v ON_ERROR_STOP=1 -c "$1" 2>/dev/null
 }
 
+wait_for_settings_table() {
+  # On a genuinely fresh install, postgres itself comes up (and its own
+  # healthcheck passes) well before the api container's entrypoint finishes
+  # running Alembic migrations, since that's a separate container with no
+  # ordering guarantee relative to this one. Every upsert_setting call below
+  # swallows psql's stderr, so writing to a table that doesn't exist yet
+  # would fail silently and never be retried, permanently leaving
+  # git_available/update_status unset, exactly the "works on an existing
+  # instance, not on a brand new one" gap this closes.
+  local i
+  for i in $(seq 1 60); do
+    if psql "$PSQL_URL" -t -A -q -c "SELECT to_regclass('public.settings')" 2>/dev/null | grep -q settings; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "Timed out waiting for the settings table to exist (migrations never completed?)." >&2
+  return 1
+}
+
 upsert_setting() {
   local key="$1" value_json="$2" escaped exists
   escaped=$(sql_escape "$value_json")
@@ -82,6 +102,14 @@ set_status() {
 idle_forever() {
   while true; do sleep 3600; done
 }
+
+if ! wait_for_settings_table; then
+  # Can't safely idle_forever here the normal way (that relies on settings
+  # writes succeeding elsewhere too), but there's nothing more productive
+  # to do than keep the container alive so `docker compose logs updater`
+  # is still inspectable instead of a crash-looping container.
+  idle_forever
+fi
 
 if [ ! -d "$CONTAINER_REPO_DIR/.git" ]; then
   echo "Not a git checkout ($CONTAINER_REPO_DIR/.git missing), self-update disabled." >&2

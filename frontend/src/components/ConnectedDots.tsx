@@ -59,9 +59,9 @@ export default function ConnectedDots({ opacity = 1 }: { opacity?: number }) {
     function step() {
       ctx!.clearRect(0, 0, width, height);
       const dark = isDark();
-      const dotColor = dark ? "rgba(147, 197, 253, 0.55)" : "rgba(30, 64, 175, 0.85)";
-      const dotRadius = dark ? 1.6 : 2;
-      const lineColor = dark ? "96, 165, 250" : "59, 130, 246";
+      const dotColor = dark ? "rgba(191, 219, 254, 0.9)" : "rgba(30, 58, 138, 1)";
+      const dotRadius = dark ? 2.2 : 2.6;
+      const lineColor = dark ? "147, 197, 253" : "37, 99, 235";
 
       for (const p of points) {
         if (!reduceMotion) {
@@ -78,9 +78,9 @@ export default function ConnectedDots({ opacity = 1 }: { opacity?: number }) {
           const b = points[j];
           const dist = Math.hypot(a.x - b.x, a.y - b.y);
           if (dist > MAX_LINK_DISTANCE) continue;
-          const lineOpacity = (1 - dist / MAX_LINK_DISTANCE) * (dark ? 0.35 : 0.6) * opacity;
+          const lineOpacity = (1 - dist / MAX_LINK_DISTANCE) * (dark ? 0.6 : 0.75) * opacity;
           ctx!.strokeStyle = `rgba(${lineColor}, ${lineOpacity})`;
-          ctx!.lineWidth = 1;
+          ctx!.lineWidth = 1.4;
           ctx!.beginPath();
           ctx!.moveTo(a.x, a.y);
           ctx!.lineTo(b.x, b.y);
@@ -103,8 +103,19 @@ export default function ConnectedDots({ opacity = 1 }: { opacity?: number }) {
     resize();
     step();
     window.addEventListener("resize", resize);
+
+    // A window resize is the only thing that changes a login/setup card's
+    // size, but on a page like the Dashboard the container can grow taller
+    // after mount too, once its async data finishes loading and renders
+    // more content, well after this only measured the pre-data height once.
+    // ResizeObserver catches that; window's own resize event doesn't.
+    const parent = canvas.parentElement;
+    const observer = parent ? new ResizeObserver(resize) : null;
+    if (parent) observer!.observe(parent);
+
     return () => {
       window.removeEventListener("resize", resize);
+      observer?.disconnect();
       cancelAnimationFrame(animationFrame);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

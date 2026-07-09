@@ -136,12 +136,53 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
             <List
               items={[
                 <>Organizations page: list (scoped to what the caller can see), create, view, edit
-                  name/description/active flag. No hard delete, deactivate instead.</>,
+                  name/description/active flag.</>,
                 <><Code>DiskLayout</Code>, <Code>DeploymentTemplate</Code>, and <Code>IsoAsset</Code> can
                   also be created with no organization at all (global scope), in which case every
                   organization inherits them read-only and can clone one into its own org-scoped copy.</>,
               ]}
             />
+          </>
+        ),
+      },
+      {
+        id: "deleting-an-organization",
+        title: "Deleting an organization",
+        overview: (
+          <>
+            <P>
+              Global admins can permanently delete an organization from the Organizations page. This
+              removes absolutely everything that belongs to it, not just the organization record itself,
+              there's no undo.
+            </P>
+          </>
+        ),
+        deepDive: (
+          <>
+            <P>Deleting an organization removes, in one action:</P>
+            <List
+              items={[
+                "Its hypervisor connections and stored credentials",
+                "Its disk layouts, templates, and ISO assets (the ISO files are removed from disk too)",
+                "Its deployment records and full history/logs",
+                "Its webhooks",
+                "Its organization-scoped settings (like the deployment timeout override)",
+                "Every user's role assignment for that specific organization",
+              ]}
+            />
+            <P>
+              Two things this does <strong>not</strong> do: it doesn't touch any VM already created on the
+              organization's hypervisors, DeployCore simply loses its own record of how to reach that
+              hypervisor, the VM keeps running exactly as it was until someone removes it directly on the
+              hypervisor. It also doesn't erase the organization from the audit log, those entries survive
+              with their organization reference cleared, so there's still a permanent record that the
+              deletion happened, who did it, and when.
+            </P>
+            <P>
+              Only a global admin can do this (the same floor as creating an organization in the first
+              place), and the confirmation dialog spells out everything above again before it lets you
+              proceed.
+            </P>
           </>
         ),
       },
@@ -180,10 +221,15 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
             />
             <P>
               A brand-new user with no role assignment at all has the implicit <Code>none</Code> role and
-              can't access anything until an admin assigns one, from the Users page (global role) and/or
-              per organization (org-role badges on that same page). RBAC is enforced on the server for
-              every route, the UI hiding a button you can't use is a convenience, not the actual security
-              boundary.
+              can't access anything until an admin assigns one. The Users page's Access column is where
+              this happens: the "Assign..." dropdown next to a user's existing roles offers every
+              organization they don't already have a role in, plus a <strong>Global (all organizations)</strong>{" "}
+              option at the top for granting (or changing) their global role the same way, no need to open
+              a separate edit form just to make someone a global admin. A user's global access, when they
+              have one, shows as its own removable "Global: role" badge right there alongside their
+              per-organization ones, so it's never mistaken for "no access" just because the organization
+              list happens to be empty. RBAC is enforced on the server for every route, the UI hiding a
+              button you can't use is a convenience, not the actual security boundary.
             </P>
             <P>
               Users sign in by <strong>username</strong>, not email. Email is entirely optional and only
@@ -381,11 +427,19 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
             <List
               items={[
                 "Name, and the Windows ISO to use (a template can exist before an ISO is attached, but it can't deploy until one is set)",
-                "Disk layout, CPU count, RAM (MB), disk size (GB)",
+                <>Disk layout, CPU count and cores per socket, RAM (MB), disk size (GB) and its{" "}
+                  <strong>provisioning type</strong>: thin (space allocated on demand), thick lazily zeroed
+                  (space reserved up front, zeroed on first write), or thick eagerly zeroed (space reserved
+                  and zeroed entirely at creation time, slower to create but avoids any first-write
+                  latency, the option most production databases and similar disk-latency-sensitive
+                  workloads want).</>,
                 <>Network name, this is the ESXi/vCenter <strong>port group or vSwitch name</strong> exactly
                   as it appears in your hypervisor's networking configuration, not a Windows-side network
-                  name, it's what the new VM's virtual NIC attaches to. Also VLAN ID, locale, timezone,
-                  and keyboard layout.</>,
+                  name, it's what the new VM's virtual NIC attaches to. Also its{" "}
+                  <strong>adapter type</strong> (VMXNET3, the paravirtualized default with the best
+                  performance and the one to use unless you have a specific reason not to; E1000/E1000E
+                  emulate real Intel NICs, only needed for guest OS or driver compatibility). Also VLAN ID,
+                  locale, timezone, and keyboard layout.</>,
                 "Local administrator password (write-only, never shown again after saving)",
                 <>Optional domain join: FQDN, join account, join credential (write-only), target OU, and
                   timing, either <Code>answer_file</Code> (baked into the unattended install) or{" "}
@@ -440,7 +494,10 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                 <>The pipeline runs in the background worker, not the request that created it: it renders
                   the answer file, builds a per-deployment answer-file ISO, uploads both ISOs to the
                   hypervisor, creates the VM (UEFI firmware, PVSCSI controller), attaches media, and
-                  powers on.</>,
+                  powers on. The Windows ISO itself is only ever uploaded to a given hypervisor's datastore
+                  once per ISO asset, not once per deployment: a second deployment from the same template
+                  (or a bulk deployment creating many at once) reuses the copy already there instead of
+                  re-transferring a multi-gigabyte file every time.</>,
                 <>The guest calls back to DeployCore once Windows Setup finishes (a single-use token per
                   deployment), which is what advances the state from booting to installing_os.</>,
                 <>Post-install runs over WinRM once the guest reports an IP: apply static network config
@@ -467,6 +524,52 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
           </>
         ),
       },
+      {
+        id: "troubleshooting-deployments",
+        title: "Troubleshooting a failed or stuck deployment",
+        overview: (
+          <>
+            <P>
+              Almost every failure traces back to one of a handful of causes: a template missing an ISO,
+              a network the VM can't actually reach DeployCore on, or a timeout on a slow install. The
+              deployment's own detail page has everything needed to tell which.
+            </P>
+          </>
+        ),
+        deepDive: (
+          <>
+            <List
+              items={[
+                <><strong>Start with the log stream</strong> on the deployment's detail page: it streams
+                  live while a deployment is running, and stays there afterward. The current-step marker
+                  (shown at the top) states exactly which pipeline step was running when things stopped
+                  progressing or failed, rendering XML, uploading an ISO, creating the VM, each post-install
+                  action are all tracked individually.</>,
+                <><strong>Download full log</strong> on that same page bundles the deployment's details,
+                  full state-transition history, and every log line into one plain-text file, the fastest
+                  way to hand a failure off to someone else or attach to a ticket.</>,
+                <><strong>Stuck in <Code>booting</Code> or <Code>installing_os</Code> for a long time?</strong>{" "}
+                  The guest calls back to DeployCore once Windows Setup finishes; if that callback can
+                  never arrive (<Code>APP_PUBLIC_URL</Code> isn't reachable from the VM's network) the
+                  deployment will sit there until its timeout trips. Confirm <Code>APP_PUBLIC_URL</Code>{" "}
+                  really is reachable from the organization's hypervisor network, not just from your own
+                  machine.</>,
+                <><strong>Fails immediately with "template has no Windows ISO configured"?</strong> The
+                  template was created (or exported/imported) before an ISO was attached to it, attach one
+                  on the Templates page.</>,
+                <><strong>It ran long, then force-failed on its own?</strong> That's the deployment timeout
+                  (Settings → deployment timeout, default 90 minutes) doing its job, not a bug, something
+                  legitimately took longer than expected. Raise the timeout for that organization if slow
+                  installs are normal in your environment (a slow datastore, for example).</>,
+                <><strong>Once you've found the cause</strong>, fix it (attach an ISO, correct the network
+                  name, whatever it was) and use <strong>Retry</strong> on the deployment's detail page: it
+                  always creates a completely fresh VM from <Code>pending</Code>, nothing from the failed
+                  attempt is reused, so retrying is always safe.</>,
+              ]}
+            />
+          </>
+        ),
+      },
     ],
   },
   {
@@ -474,14 +577,39 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
     label: "Integrations & operations",
     articles: [
       {
+        id: "in-app-notifications",
+        title: "In-app notifications",
+        overview: (
+          <>
+            <P>
+              The bell icon in the header is on for every user automatically, no configuration needed:
+              it's how you find out a deployment you started has moved, without needing email set up at
+              all.
+            </P>
+          </>
+        ),
+        deepDive: (
+          <>
+            <P>
+              You're notified when a deployment <em>you</em> created starts, completes, or fails, not
+              other people's deployments. The bell polls for an unread count every 20 seconds; opening it
+              shows your recent notifications, and clicking one marks it read and takes you straight to
+              that deployment's detail page. This is always on and has no per-user settings, unlike email
+              delivery below, which is opt-in per event type.
+            </P>
+          </>
+        ),
+      },
+      {
         id: "email-notifications",
         title: "Email notifications via Microsoft 365",
         overview: (
           <>
             <P>
-              DeployCore can email users when their deployments start, finish, fail, or go unreachable, by
-              sending through your own Microsoft 365 tenant. It's configured once, instance-wide, by a
-              global admin.
+              DeployCore can also email users when their deployments start, finish, fail, or go
+              unreachable, by sending through your own Microsoft 365 tenant. It's configured once,
+              instance-wide, by a global admin, then each user chooses which of those events they
+              personally want emailed to them.
             </P>
           </>
         ),

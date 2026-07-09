@@ -2,7 +2,7 @@ import uuid
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.template import DomainJoinTiming
+from app.models.template import DiskProvisioning, DomainJoinTiming, NetworkAdapterType
 from app.schemas.disk_layout import DiskLayoutJson
 
 
@@ -16,9 +16,12 @@ class DeploymentTemplateCreate(BaseModel):
     iso_asset_id: uuid.UUID | None = None
     disk_layout_id: uuid.UUID
     cpu_count: int
+    cores_per_socket: int = 1
     ram_mb: int
     disk_size_gb: int
+    disk_provisioning: DiskProvisioning = DiskProvisioning.THIN
     network_name: str
+    network_adapter_type: NetworkAdapterType = NetworkAdapterType.VMXNET3
     vlan_id: int | None = None
     locale: str = "en-US"
     timezone: str = "UTC"
@@ -39,9 +42,12 @@ class DeploymentTemplateUpdate(BaseModel):
     iso_asset_id: uuid.UUID | None = None
     disk_layout_id: uuid.UUID | None = None
     cpu_count: int | None = None
+    cores_per_socket: int | None = None
     ram_mb: int | None = None
     disk_size_gb: int | None = None
+    disk_provisioning: DiskProvisioning | None = None
     network_name: str | None = None
+    network_adapter_type: NetworkAdapterType | None = None
     vlan_id: int | None = None
     locale: str | None = None
     timezone: str | None = None
@@ -66,9 +72,12 @@ class DeploymentTemplateRead(BaseModel):
     iso_asset_id: uuid.UUID | None
     disk_layout_id: uuid.UUID
     cpu_count: int
+    cores_per_socket: int
     ram_mb: int
     disk_size_gb: int
+    disk_provisioning: DiskProvisioning
     network_name: str
+    network_adapter_type: NetworkAdapterType
     vlan_id: int | None
     locale: str
     timezone: str
@@ -102,9 +111,12 @@ class DeploymentTemplateExport(BaseModel):
     disk_layout: TemplateExportDiskLayout
     iso_hint: TemplateExportIsoHint | None
     cpu_count: int
+    cores_per_socket: int
     ram_mb: int
     disk_size_gb: int
+    disk_provisioning: DiskProvisioning
     network_name: str
+    network_adapter_type: NetworkAdapterType
     vlan_id: int | None
     locale: str
     timezone: str
@@ -122,9 +134,12 @@ class DeploymentTemplateImport(BaseModel):
     name: str
     disk_layout: TemplateExportDiskLayout
     cpu_count: int
+    cores_per_socket: int = 1
     ram_mb: int
     disk_size_gb: int
+    disk_provisioning: DiskProvisioning = DiskProvisioning.THIN
     network_name: str
+    network_adapter_type: NetworkAdapterType = NetworkAdapterType.VMXNET3
     vlan_id: int | None = None
     locale: str = "en-US"
     timezone: str = "UTC"

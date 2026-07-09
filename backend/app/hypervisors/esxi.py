@@ -87,14 +87,23 @@ class ESXiDriver(HypervisorDriver):
             disk_spec.device = vim.vm.device.VirtualDisk()
             disk_spec.device.backing = vim.vm.device.VirtualDisk.FlatVer2BackingInfo()
             disk_spec.device.backing.diskMode = "persistent"
-            disk_spec.device.backing.thinProvisioned = True
+            # thin: thinProvisioned only. thick lazy zeroed: neither flag (the
+            # vSphere API's own default, zeroed on first write). thick eager
+            # zeroed: eagerlyScrub, zeroed up front at creation time.
+            disk_spec.device.backing.thinProvisioned = spec.disk_provisioning == "thin"
+            disk_spec.device.backing.eagerlyScrub = spec.disk_provisioning == "thick_eager_zeroed"
             disk_spec.device.unitNumber = 0
             disk_spec.device.capacityInKB = spec.disk_size_gb * 1024 * 1024
             disk_spec.device.controllerKey = 1000
 
+            nic_device_cls = {
+                "vmxnet3": vim.vm.device.VirtualVmxnet3,
+                "e1000": vim.vm.device.VirtualE1000,
+                "e1000e": vim.vm.device.VirtualE1000e,
+            }.get(spec.network_adapter_type, vim.vm.device.VirtualVmxnet3)
             nic_spec = vim.vm.device.VirtualDeviceSpec()
             nic_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.add
-            nic_spec.device = vim.vm.device.VirtualVmxnet3()
+            nic_spec.device = nic_device_cls()
             nic_spec.device.backing = vim.vm.device.VirtualEthernetCard.NetworkBackingInfo()
             nic_spec.device.backing.deviceName = spec.network_name
             nic_spec.device.connectable = vim.vm.device.VirtualDevice.ConnectInfo()
@@ -103,6 +112,7 @@ class ESXiDriver(HypervisorDriver):
             config = vim.vm.ConfigSpec()
             config.name = spec.name
             config.numCPUs = spec.cpu_count
+            config.numCoresPerSocket = spec.cores_per_socket
             config.memoryMB = spec.ram_mb
             # Newest guestId ESXi/vCenter's GuestOsDescriptor enum is likely to
             # support at time of writing; confirm against the target host's

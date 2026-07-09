@@ -18,11 +18,14 @@ class ConnectionResult(BaseModel):
 class VmSpec(BaseModel):
     name: str
     cpu_count: int
+    cores_per_socket: int = 1
     ram_mb: int
     disk_size_gb: int
+    disk_provisioning: str = "thin"
     firmware: str
     scsi_controller: str
     network_name: str
+    network_adapter_type: str = "vmxnet3"
     datastore: str | None = None
 
 

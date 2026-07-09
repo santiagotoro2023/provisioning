@@ -1,7 +1,8 @@
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { api, ApiError } from "../api/client";
 import Badge from "../components/Badge";
+import ConfirmDialog from "../components/ConfirmDialog";
 import DataTable from "../components/DataTable";
 import { Organization } from "../api/types";
 import { useAuth, roleAtLeast } from "../state/auth";
@@ -11,8 +12,22 @@ export default function Organizations() {
   const { user } = useAuth();
   const { organizations, refresh } = useOrg();
   const [showCreate, setShowCreate] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<Organization | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const canCreate = !!user && roleAtLeast(user.global_role, "admin");
+
+  async function deleteOrg() {
+    if (!confirmDelete) return;
+    setDeleteError(null);
+    try {
+      await api.delete(`/organizations/${confirmDelete.id}`);
+      setConfirmDelete(null);
+      await refresh();
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Failed to delete organization.");
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -38,6 +53,21 @@ export default function Organizations() {
           { key: "slug", header: "Slug", render: (o) => o.slug },
           { key: "description", header: "Description", render: (o) => o.description ?? "(none)" },
           { key: "status", header: "Status", render: (o) => <Badge value={o.is_active ? "active" : "unknown"} />, shrink: true },
+          {
+            key: "actions",
+            header: "",
+            shrink: true,
+            render: (o) =>
+              canCreate && (
+                <button
+                  className="flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                  onClick={() => setConfirmDelete(o)}
+                >
+                  <Trash2 size={12} strokeWidth={1.75} />
+                  Delete
+                </button>
+              ),
+          },
         ]}
       />
 
@@ -50,6 +80,26 @@ export default function Organizations() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title={`Delete ${confirmDelete?.name}`}
+        message={
+          <>
+            This permanently deletes <strong>everything</strong> that belongs to this organization: its
+            hypervisor connections, disk layouts, templates, ISO assets, deployment records, webhooks,
+            settings, and every user's role assignment for it. Any VM already created on its hypervisors is
+            <strong> not</strong> deleted, DeployCore just loses its own record of the connection to reach it.
+            {deleteError && <div className="mt-3 text-xs text-red-600">{deleteError}</div>}
+          </>
+        }
+        confirmLabel="Delete organization"
+        onConfirm={deleteOrg}
+        onCancel={() => {
+          setConfirmDelete(null);
+          setDeleteError(null);
+        }}
+      />
     </div>
   );
 }

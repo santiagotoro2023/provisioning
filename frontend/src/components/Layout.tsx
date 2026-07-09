@@ -60,7 +60,7 @@ export default function Layout() {
             {hasLogo ? (
               <img src="/api/instance/logo" alt="" className="h-9 w-9 shrink-0 object-contain" />
             ) : (
-              <BrandMark size={34} />
+              <BrandMark size={42} />
             )}
             <div className="truncate text-sm font-semibold tracking-tight">{instanceName}</div>
           </div>
