@@ -326,6 +326,18 @@ org-scoped copy.
   out the boot prompt for a `windows_iso` (see the deployment pipeline
   section below), and marks it `complete`), built for multi-gigabyte ISOs
   without loading the whole file into memory client- or server-side
+- For a `windows_iso`, finalize also detects every Windows edition bundled
+  in its `install.wim` (`app/services/windows_edition_detect.py`): Windows
+  Server media typically ships several editions (Standard/Datacenter x
+  Server Core/Desktop Experience) in one file, selected only by a numeric
+  `/IMAGE/INDEX` in the answer file. Detection extracts the WIM with
+  `xorriso -osirrox` (read-only against the ISO) and reads its embedded
+  metadata with `wimlib-imagex info --extract-xml` (UTF-16 XML), storing
+  the result as `iso_assets.windows_editions` (JSONB list of
+  `{index, name, description}`). Best-effort: any failure (non-Microsoft
+  media, no install.wim/.esd, tool failure) just leaves it `[]`, it never
+  blocks the upload. Templates use this list to offer a named edition
+  dropdown instead of a bare index number, see Deployment Templates below
 - Delete removes the database row and the file on disk. A template that
   references the ISO doesn't block the delete: `deployment_templates
   .iso_asset_id` is `ON DELETE SET NULL` (migration 0021), so the delete
@@ -371,6 +383,12 @@ org-scoped copy.
   org and can be cloned into an org-scoped copy)
 - Fields: name, Windows ISO (nullable, a template can exist before an ISO
   is attached; the pipeline refuses to deploy from it until one is set),
+  `image_index` (which edition inside that ISO's `install.wim` to install,
+  rendered into the answer file's `/IMAGE/INDEX`; defaults to `1`, which is
+  not a considered choice, it's whatever was hardcoded before this field
+  existed and is typically Server Core, no GUI, on Microsoft's standard
+  multi-edition ordering. The UI shows a dropdown of the ISO's own detected
+  `windows_editions` when available, a plain number field otherwise),
   disk layout, CPU count and cores per socket, RAM (MB), disk size (GB) and
   disk provisioning type (thin / thick lazily zeroed / thick eagerly
   zeroed), network name (an ESXi/vCenter port group, network segmentation

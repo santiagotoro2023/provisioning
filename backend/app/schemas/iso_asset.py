@@ -10,6 +10,12 @@ class IsoAssetCreate(BaseModel):
     kind: IsoKind
 
 
+class WindowsEditionInfo(BaseModel):
+    index: int
+    name: str
+    description: str
+
+
 class IsoAssetRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -20,3 +26,4 @@ class IsoAssetRead(BaseModel):
     checksum_sha256: str | None
     size_bytes: int
     upload_status: UploadStatus
+    windows_editions: list[WindowsEditionInfo]

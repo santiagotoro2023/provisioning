@@ -239,6 +239,7 @@ function TemplateForm({
   const isEdit = !!existing;
   const [name, setName] = useState(existing?.name ?? "");
   const [isoAssetId, setIsoAssetId] = useState(existing?.iso_asset_id ?? isoAssets[0]?.id ?? "");
+  const [imageIndex, setImageIndex] = useState(existing?.image_index ?? 1);
   const [diskLayoutId, setDiskLayoutId] = useState(existing?.disk_layout_id ?? diskLayouts[0]?.id ?? "");
   const [cpuCount, setCpuCount] = useState(existing?.cpu_count ?? 2);
   const [coresPerSocket, setCoresPerSocket] = useState(existing?.cores_per_socket ?? 1);
@@ -316,6 +317,7 @@ function TemplateForm({
     const body = {
       name,
       iso_asset_id: isoAssetId || null,
+      image_index: imageIndex,
       disk_layout_id: diskLayoutId,
       cpu_count: cpuCount,
       cores_per_socket: coresPerSocket,
@@ -368,7 +370,17 @@ function TemplateForm({
         <div className="mb-3 grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Windows ISO</label>
-            <Select className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm" value={isoAssetId} onChange={(e) => setIsoAssetId(e.target.value)}>
+            <Select
+              className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm"
+              value={isoAssetId}
+              onChange={(e) => {
+                setIsoAssetId(e.target.value);
+                const editions = isoAssets.find((iso) => iso.id === e.target.value)?.windows_editions ?? [];
+                if (editions.length > 0 && !editions.some((ed) => ed.index === imageIndex)) {
+                  setImageIndex(editions[0].index);
+                }
+              }}
+            >
               <option value="">None yet, cannot deploy</option>
               {isoAssets.map((iso) => (
                 <option key={iso.id} value={iso.id}>{iso.filename}</option>
@@ -385,6 +397,35 @@ function TemplateForm({
             </Select>
           </div>
         </div>
+
+        {(() => {
+          const editions = isoAssets.find((iso) => iso.id === isoAssetId)?.windows_editions ?? [];
+          return (
+            <div className="mb-3">
+              <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Windows edition</label>
+              {editions.length > 0 ? (
+                <Select
+                  className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm"
+                  value={String(imageIndex)}
+                  onChange={(e) => setImageIndex(Number(e.target.value))}
+                >
+                  {editions.map((ed) => (
+                    <option key={ed.index} value={ed.index}>{ed.index} — {ed.name || ed.description}</option>
+                  ))}
+                </Select>
+              ) : (
+                <input
+                  type="number"
+                  min={1}
+                  className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
+                  value={imageIndex}
+                  onChange={(e) => setImageIndex(Number(e.target.value))}
+                  placeholder="/IMAGE/INDEX (no editions detected in this ISO)"
+                />
+              )}
+            </div>
+          );
+        })()}
 
         <div className="mb-3 grid grid-cols-4 gap-3">
           <div>

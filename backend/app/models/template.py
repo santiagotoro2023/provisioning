@@ -39,6 +39,14 @@ class DeploymentTemplate(UUIDPKMixin, TimestampMixin, Base):
     iso_asset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("iso_assets.id", ondelete="SET NULL"), nullable=True
     )
+    # Which edition inside the ISO's install.wim to install (Windows
+    # Server media typically bundles several: Standard/Datacenter x Server
+    # Core/Desktop Experience). Default 1 is not a considered choice, it's
+    # what /IMAGE/INDEX always hardcoded before this field existed, on
+    # Microsoft's usual ordering that's Server Core; the ISO asset's own
+    # windows_editions (detected at upload time) is what the UI offers as
+    # actual named choices instead of a bare number.
+    image_index: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     disk_layout_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("disk_layouts.id"), nullable=False
     )

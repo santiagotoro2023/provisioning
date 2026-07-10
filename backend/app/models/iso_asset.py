@@ -2,7 +2,7 @@ import enum
 import uuid
 
 from sqlalchemy import BigInteger, ForeignKey, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDPKMixin, enum_column
@@ -34,3 +34,8 @@ class IsoAsset(UUIDPKMixin, TimestampMixin, Base):
     upload_status: Mapped[UploadStatus] = enum_column(
         UploadStatus, "upload_status", default=UploadStatus.PENDING, nullable=False
     )
+    # [{"index": 1, "name": "SERVERSTANDARDCORE", "description": "..."}, ...],
+    # detected once at finalize time from install.wim's own embedded
+    # metadata (windows_edition_detect.py), not maintained by hand. Empty
+    # for anything that isn't a Microsoft-laid-out Windows install ISO.
+    windows_editions: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)

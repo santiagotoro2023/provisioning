@@ -55,6 +55,12 @@ export interface DiskLayout {
 export type IsoKind = "windows_iso" | "virtio_iso";
 export type UploadStatus = "pending" | "uploading" | "complete" | "failed";
 
+export interface WindowsEditionInfo {
+  index: number;
+  name: string;
+  description: string;
+}
+
 export interface IsoAsset {
   id: string;
   org_id: string | null;
@@ -63,6 +69,7 @@ export interface IsoAsset {
   checksum_sha256: string | null;
   size_bytes: number;
   upload_status: UploadStatus;
+  windows_editions: WindowsEditionInfo[];
 }
 
 export type AppKind = "msi" | "exe";
@@ -98,6 +105,7 @@ export interface DeploymentTemplate {
   org_id: string | null;
   name: string;
   iso_asset_id: string | null;
+  image_index: number;
   disk_layout_id: string;
   cpu_count: number;
   cores_per_socket: number;

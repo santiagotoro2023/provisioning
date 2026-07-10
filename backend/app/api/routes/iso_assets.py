@@ -89,12 +89,13 @@ async def finalize_iso_upload(
 ) -> IsoAsset:
     iso = await _get_org_owned_iso(db, org_id, iso_id)
     try:
-        storage_path, checksum, size_bytes = iso_upload.finalize(iso.id, iso.filename, iso.kind)
+        storage_path, checksum, size_bytes, windows_editions = iso_upload.finalize(iso.id, iso.filename, iso.kind)
     except FileNotFoundError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no chunks were uploaded for this ISO asset")
     iso.storage_path = storage_path
     iso.checksum_sha256 = checksum
     iso.size_bytes = size_bytes
+    iso.windows_editions = windows_editions
     iso.upload_status = UploadStatus.COMPLETE
     audit.record(
         db, action="iso_asset.finalize", target_type="iso_asset", org_id=org_id,
@@ -188,12 +189,13 @@ async def finalize_global_iso_upload(
 ) -> IsoAsset:
     iso = await _get_global_iso(db, iso_id)
     try:
-        storage_path, checksum, size_bytes = iso_upload.finalize(iso.id, iso.filename, iso.kind)
+        storage_path, checksum, size_bytes, windows_editions = iso_upload.finalize(iso.id, iso.filename, iso.kind)
     except FileNotFoundError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no chunks were uploaded for this ISO asset")
     iso.storage_path = storage_path
     iso.checksum_sha256 = checksum
     iso.size_bytes = size_bytes
+    iso.windows_editions = windows_editions
     iso.upload_status = UploadStatus.COMPLETE
     audit.record(
         db, action="iso_asset.finalize_global", target_type="iso_asset",

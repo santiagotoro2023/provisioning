@@ -379,6 +379,16 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               just means a slower upload, not a failed one.
             </P>
             <P>
+              For a Windows ISO, finalize also detects every Windows edition bundled inside its{" "}
+              <Code>install.wim</Code> (Windows Server media typically ships several: Standard/Datacenter
+              crossed with Server Core/Desktop Experience, all in one file, selected only by an install-time
+              index). This reads the WIM's own embedded XML metadata, it doesn't need to actually install
+              anything to know what's available. Templates use this list to offer a named edition picker
+              instead of a bare number, see "Templates and Windows roles". An ISO with no detectable
+              editions (non-Microsoft media, or an ISO uploaded before this existed) just falls back to a
+              plain image-index number field.
+            </P>
+            <P>
               Deleting an ISO asset removes the file from disk and the database record. If any template
               still references it, that template's ISO is cleared rather than the delete being blocked,
               the template survives but can't deploy until a new ISO is attached, same as a brand new
@@ -498,6 +508,13 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
             <List
               items={[
                 "Name, and the Windows ISO to use (a template can exist before an ISO is attached, but it can't deploy until one is set)",
+                <>The Windows <strong>edition</strong> to install from that ISO's <Code>install.wim</Code>. If
+                  the ISO asset has detected editions (see "ISO assets"), this is a dropdown of the actual
+                  named choices (e.g. "2 — SERVERSTANDARD: Windows Server 2025 Standard (Desktop
+                  Experience)"); otherwise it's a plain image-index number. This defaults to index 1, which
+                  is <em>not</em> a considered default, it's whatever Microsoft's media happens to put
+                  first, typically Server Core (no GUI) on standard multi-edition Server ISOs, check the
+                  dropdown rather than assuming.</>,
                 <>Disk layout, CPU count and cores per socket, RAM (MB), disk size (GB) and its{" "}
                   <strong>provisioning type</strong>: thin (space allocated on demand), thick lazily zeroed
                   (space reserved up front, zeroed on first write), or thick eagerly zeroed (space reserved

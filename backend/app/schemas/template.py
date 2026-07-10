@@ -31,6 +31,12 @@ class AppInstallEntry(BaseModel):
 class DeploymentTemplateCreate(BaseModel):
     name: str
     iso_asset_id: uuid.UUID | None = None
+    # Which edition inside the ISO's install.wim to install; 1 matches
+    # what was hardcoded before this field existed (typically Server Core
+    # on Microsoft's usual multi-edition ordering), not a considered
+    # default. The ISO asset's own detected windows_editions is what the
+    # UI shows as actual named choices.
+    image_index: int = 1
     disk_layout_id: uuid.UUID
     cpu_count: int
     cores_per_socket: int = 1
@@ -59,6 +65,7 @@ class DeploymentTemplateCreate(BaseModel):
 class DeploymentTemplateUpdate(BaseModel):
     name: str | None = None
     iso_asset_id: uuid.UUID | None = None
+    image_index: int | None = None
     disk_layout_id: uuid.UUID | None = None
     cpu_count: int | None = None
     cores_per_socket: int | None = None
@@ -91,6 +98,7 @@ class DeploymentTemplateRead(BaseModel):
     org_id: uuid.UUID | None
     name: str
     iso_asset_id: uuid.UUID | None
+    image_index: int
     disk_layout_id: uuid.UUID
     cpu_count: int
     cores_per_socket: int

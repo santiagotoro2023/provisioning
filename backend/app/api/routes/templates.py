@@ -203,6 +203,7 @@ async def clone_template(
         org_id=org_id,
         name=f"{source.name} (copy)",
         iso_asset_id=source.iso_asset_id,
+        image_index=source.image_index,
         disk_layout_id=source.disk_layout_id,
         cpu_count=source.cpu_count,
         cores_per_socket=source.cores_per_socket,
