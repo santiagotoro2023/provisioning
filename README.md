@@ -364,9 +364,9 @@ org-scoped copy.
   e.g. `ServerStandardCore`; every Desktop Experience one doesn't), not
   guessed from `name`/`description` text, since those aren't guaranteed to
   spell out "(Desktop Experience)" on every ISO (older/localized media).
-  This is what lets the template form label each choice explicitly as
-  "Desktop Experience, has a GUI" or "Server Core, no GUI" instead of
-  leaving you to guess from a bare index number or an ambiguous name.
+  This is what lets the template form label each choice with an explicit
+  `GUI`/`No GUI` tag instead of leaving you to guess from a bare index
+  number or an ambiguous name.
   Best-effort: any failure (non-Microsoft media, no install.wim/.esd, tool
   failure) just leaves it `[]`, it never
   blocks the upload. Templates use this list to offer a named edition
@@ -422,9 +422,8 @@ org-scoped copy.
   existed and is typically Server Core, no GUI, on Microsoft's standard
   multi-edition ordering. The UI shows a dropdown of the ISO's own detected
   `windows_editions` when available, each option labeled with its edition
-  name and an explicit "Desktop Experience, has a GUI" / "Server Core, no
-  GUI" tag so there's no need to guess which is which, a plain number
-  field otherwise),
+  name and a `GUI`/`No GUI` tag so there's no need to guess which is
+  which, a plain number field otherwise),
   disk layout, CPU count and cores per socket, RAM (MB), disk size (GB) and
   disk provisioning type (thin / thick lazily zeroed / thick eagerly
   zeroed), network name (an ESXi/vCenter port group, network segmentation
