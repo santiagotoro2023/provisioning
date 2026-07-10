@@ -565,10 +565,24 @@ pending → creating_vm → booting → installing_os → post_install → confi
   `/api/callback/{token}` (single-use per-deployment token, sets
   `callback_token_used`, which `wait_for_callback` polls for instead of a
   state change, since the state's already `installing_os` by the time this
-  fires). If `template.custom_admin_enabled` is on (off by default), two more
-  commands render: `LocalAccountTokenFilterPolicy=1` right after enabling
-  WinRM (by default Windows' UAC remote restriction only exempts the
-  actual built-in Administrator (RID 500) from a filtered, non-elevated
+  fires). None of this runs unattended without `AutoLogon` in the oobeSystem
+  pass, set to whichever account `local_admin_username`/`local_admin_password`
+  resolve to (the built-in Administrator off toggle, the custom account on):
+  `SkipMachineOOBE`/`SkipUserOOBE` alone don't make Setup log in on their own,
+  `FirstLogonCommands` only ever run as part of an actual first-logon event,
+  without `AutoLogon` that means a plain login prompt sitting at the console
+  (and, observed in testing, some OOBE privacy/diagnostics screens still
+  showing on that manual first logon despite the Skip* flags) until a human
+  physically logs in, defeating the entire point. `LogonCount` is `1`, so
+  Windows won't auto-logon again after this, and the very first
+  `FirstLogonCommand` (before anything else, including enabling WinRM)
+  scrubs the plaintext password `AutoLogon` leaves in the
+  `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon` registry key
+  as a side effect, `DefaultPassword` and `AutoAdminLogon`, keeping the
+  exposure window as short as possible. If `template.custom_admin_enabled` is
+  on (off by default), two more commands render: `LocalAccountTokenFilterPolicy=1`
+  right after enabling WinRM (by default Windows' UAC remote restriction only
+  exempts the actual built-in Administrator (RID 500) from a filtered, non-elevated
   token on network logons, without this every WinRM command DeployCore
   runs post-install would silently fail for the template's custom admin
   account even though it's in Administrators), and disabling the built-in

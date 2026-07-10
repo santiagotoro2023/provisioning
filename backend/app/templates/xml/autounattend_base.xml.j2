@@ -87,6 +87,32 @@
                 </LocalAccounts>
 {% endif %}
             </UserAccounts>
+            <!-- Without this, Setup leaves a plain login prompt at the
+                 console after specialize/OOBE processing finishes:
+                 FirstLogonCommands only ever run as part of an actual
+                 first-logon event, and nothing about SkipMachineOOBE/
+                 SkipUserOOBE makes that happen on its own, it still needs
+                 a human to type credentials at the console (or, as seen in
+                 testing, still shows some OOBE privacy/diagnostics screens
+                 on that manual first logon despite the Skip* flags above).
+                 AutoLogon is what makes the whole deployment actually
+                 unattended: Setup logs the target admin account in itself
+                 once specialize/OOBE is done, which is what lets
+                 FirstLogonCommands (WinRM enable, the callback, disabling
+                 the built-in Administrator when custom_admin_enabled) run
+                 with nobody at the console at all. LogonCount 1 means
+                 Windows won't auto-logon again after this; the plaintext
+                 password AutoLogon leaves in the registry as a side effect
+                 is scrubbed by the very first FirstLogonCommand below. -->
+            <AutoLogon>
+                <Password>
+                    <Value>{{ template.local_admin_password }}</Value>
+                    <PlainText>true</PlainText>
+                </Password>
+                <Enabled>true</Enabled>
+                <LogonCount>1</LogonCount>
+                <Username>{{ template.local_admin_username }}</Username>
+            </AutoLogon>
             <OOBE>
                 <HideEULAPage>true</HideEULAPage>
                 <HideLocalAccountScreen>true</HideLocalAccountScreen>

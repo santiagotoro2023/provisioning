@@ -881,11 +881,27 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               <strong>OOBE and the built-in Administrator account.</strong> The <Code>OOBE</Code> block
               (<Code>HideEULAPage</Code>, <Code>HideLocalAccountScreen</Code>,{" "}
               <Code>HideOnlineAccountScreens</Code>, <Code>HideWirelessSetupInOOBE</Code>,{" "}
-              <Code>SkipMachineOOBE</Code>, <Code>SkipUserOOBE</Code>) suppresses every interactive OOBE
-              screen unconditionally, there's nothing to click through after Setup itself finishes,
-              regardless of the custom admin toggle below. Setup always requires the built-in
-              Administrator account to have a password at this point (<Code>AdministratorPassword</Code>),
-              so it always gets one.
+              <Code>SkipMachineOOBE</Code>, <Code>SkipUserOOBE</Code>) suppresses the interactive OOBE
+              account-setup/network screens, but <strong>on its own doesn't get anyone logged in</strong>{" "}
+              at all: <Code>FirstLogonCommands</Code> only ever run as part of an actual first-logon
+              event, and without something making that happen unattended, Setup just leaves a plain
+              login prompt sitting at the console, exactly the manual step this whole tool exists to
+              remove (and, seen in real testing, some OOBE privacy/diagnostics screens can still show
+              through even with every Skip*/Hide* flag above set, specifically on that manual first
+              logon). <Code>AutoLogon</Code> is what actually closes the gap: Setup logs the target admin
+              account in itself the moment specialize/OOBE processing is done, <Code>LogonCount</Code>{" "}
+              set to <Code>1</Code> so it only ever does this once. The account it logs into is always
+              whichever one <Code>local_admin_username</Code>/<Code>local_admin_password</Code> resolve
+              to, same account WinRM authenticates as later, so this stays correct automatically for
+              both the custom-admin-off and custom-admin-on cases below without needing its own branch.
+              One side effect worth knowing: <Code>AutoLogon</Code> leaves that password in plaintext in
+              the registry (<Code>HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon</Code>,{" "}
+              <Code>DefaultPassword</Code>/<Code>AutoAdminLogon</Code>) as an implementation detail of
+              how it works at all; the very first <Code>FirstLogonCommand</Code>, before anything else
+              including enabling WinRM, scrubs both values out again, keeping the window that plaintext
+              copy exists as short as possible. Setup always requires the built-in Administrator account
+              to have a password at this point too (<Code>AdministratorPassword</Code>), so it always
+              gets one regardless of which account ends up being the one that's actually used.
             </P>
             <P>
               A template's <strong>custom admin account</strong> toggle (Templates page, off by default)
