@@ -412,18 +412,7 @@ export default function DeploymentDetail() {
       <ConfirmDialog
         open={confirmDeleteDeployment}
         title="Delete deployment"
-        message={
-          [
-            "Removes this deployment from lists and the dashboard. Its log history is kept, not shown anywhere in the UI, but not erased either.",
-            deployment.vm_moref &&
-              "Its VM is not touched and keeps running on the hypervisor, DeployCore just stops tracking it here.",
-            !["completed", "failed"].includes(deployment.state) &&
-              "It's still in progress, deleting it doesn't stop that, the pipeline keeps running in the background.",
-            "This cannot be undone from here.",
-          ]
-            .filter(Boolean)
-            .join(" ")
-        }
+        message="Removes this deployment from the dashboard. Its VM, if any, keeps running on the hypervisor. This cannot be undone here."
         confirmLabel="Delete deployment"
         onConfirm={deleteDeployment}
         onCancel={() => setConfirmDeleteDeployment(false)}

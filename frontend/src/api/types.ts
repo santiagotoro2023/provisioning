@@ -59,6 +59,7 @@ export interface WindowsEditionInfo {
   index: number;
   name: string;
   description: string;
+  has_gui: boolean;
 }
 
 export interface IsoAsset {

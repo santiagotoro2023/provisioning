@@ -64,10 +64,22 @@ def detect_editions(iso_path: Path) -> list[dict]:
             index = image.get("INDEX")
             if index is None:
                 continue
+            name = image.findtext("NAME") or ""
+            description = image.findtext("DESCRIPTION") or ""
+            # Microsoft's own FLAGS value is the one machine-readable signal
+            # for which edition this is (e.g. "ServerStandard" vs.
+            # "ServerStandardCore", "ServerDatacenter" vs.
+            # "ServerDatacenterCore"): every Core (no GUI) SKU's flag ends in
+            # "Core", every Desktop Experience (has GUI) one doesn't. NAME/
+            # DESCRIPTION usually spell "(Desktop Experience)" out too, but
+            # aren't guaranteed to (older/localized media), FLAGS always is.
+            flags = image.findtext("FLAGS") or ""
+            has_gui = "core" not in flags.lower() if flags else "core" not in f"{name} {description}".lower()
             editions.append({
                 "index": int(index),
-                "name": image.findtext("NAME") or "",
-                "description": image.findtext("DESCRIPTION") or "",
+                "name": name,
+                "description": description,
+                "has_gui": has_gui,
             })
         return editions
     except Exception:  # noqa: BLE001 - best-effort, see docstring

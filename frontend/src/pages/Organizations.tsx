@@ -86,10 +86,9 @@ export default function Organizations() {
         title={`Delete ${confirmDelete?.name}`}
         message={
           <>
-            This permanently deletes <strong>everything</strong> that belongs to this organization: its
-            hypervisor connections, disk layouts, templates, ISO assets, deployment records, webhooks,
-            settings, and every user's role assignment for it. Any VM already created on its hypervisors is
-            <strong> not</strong> deleted, DeployCore just loses its own record of the connection to reach it.
+            Permanently deletes this organization and everything in it (hypervisors, templates,
+            deployments, access). This cannot be undone. Any VM already created on its hypervisors is{" "}
+            <strong>not</strong> touched, it keeps running.
             {deleteError && <div className="mt-3 text-xs text-red-600">{deleteError}</div>}
           </>
         }

@@ -111,7 +111,7 @@ export default function Hypervisors() {
       <ConfirmDialog
         open={!!confirmDelete}
         title="Delete hypervisor"
-        message={`Delete "${confirmDelete?.name}"? This only removes DeployCore's stored connection and credentials, it does not touch the hypervisor or any VMs already created on it. This cannot be undone.`}
+        message={`Delete "${confirmDelete?.name}"? Only removes DeployCore's stored connection — existing VMs keep running. This cannot be undone.`}
         confirmLabel="Delete"
         onConfirm={deleteHost}
         onCancel={() => setConfirmDelete(null)}
@@ -200,7 +200,7 @@ function CreateHypervisorForm({
         <Select className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm" value={type} onChange={(e) => setType(e.target.value as HypervisorType)}>
           <option value="esxi">ESXi</option>
         </Select>
-        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">API endpoint (IP address or hostname)</label>
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">API endpoint</label>
         <input className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={apiEndpoint} onChange={(e) => setApiEndpoint(e.target.value)} />
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Username</label>
         <input autoComplete="off" className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={username} onChange={(e) => setUsername(e.target.value)} />

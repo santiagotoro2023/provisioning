@@ -112,7 +112,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
               />
-              <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Email (optional, for future notifications)</label>
+              <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Email (optional)</label>
               <input
                 type="email"
                 className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"

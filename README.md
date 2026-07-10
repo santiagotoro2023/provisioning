@@ -334,8 +334,16 @@ org-scoped copy.
   `xorriso -osirrox` (read-only against the ISO) and reads its embedded
   metadata with `wimlib-imagex info --extract-xml` (UTF-16 XML), storing
   the result as `iso_assets.windows_editions` (JSONB list of
-  `{index, name, description}`). Best-effort: any failure (non-Microsoft
-  media, no install.wim/.esd, tool failure) just leaves it `[]`, it never
+  `{index, name, description, has_gui}`). `has_gui` is derived from the
+  WIM's own `FLAGS` value (every Core, no-GUI SKU's flag ends in `Core`,
+  e.g. `ServerStandardCore`; every Desktop Experience one doesn't), not
+  guessed from `name`/`description` text, since those aren't guaranteed to
+  spell out "(Desktop Experience)" on every ISO (older/localized media).
+  This is what lets the template form label each choice explicitly as
+  "Desktop Experience, has a GUI" or "Server Core, no GUI" instead of
+  leaving you to guess from a bare index number or an ambiguous name.
+  Best-effort: any failure (non-Microsoft media, no install.wim/.esd, tool
+  failure) just leaves it `[]`, it never
   blocks the upload. Templates use this list to offer a named edition
   dropdown instead of a bare index number, see Deployment Templates below
 - Delete removes the database row and the file on disk. A template that
@@ -388,7 +396,10 @@ org-scoped copy.
   not a considered choice, it's whatever was hardcoded before this field
   existed and is typically Server Core, no GUI, on Microsoft's standard
   multi-edition ordering. The UI shows a dropdown of the ISO's own detected
-  `windows_editions` when available, a plain number field otherwise),
+  `windows_editions` when available, each option labeled with its edition
+  name and an explicit "Desktop Experience, has a GUI" / "Server Core, no
+  GUI" tag so there's no need to guess which is which, a plain number
+  field otherwise),
   disk layout, CPU count and cores per socket, RAM (MB), disk size (GB) and
   disk provisioning type (thin / thick lazily zeroed / thick eagerly
   zeroed), network name (an ESXi/vCenter port group, network segmentation
@@ -697,6 +708,15 @@ Every article has a short "quick overview" (what it does, in plain language)
 and a full "deep dive" underneath (exact fields, defaults, and edge cases),
 searchable from a filter box in the sidebar. It's static content shipped with
 the app, no network access needed to read it.
+
+This (and this README) is deliberately where the detail lives, not the UI
+itself: field labels stay to the point (a bare "Locale", not "Locale
+(Windows id, not IETF)"), and confirmation dialogs state only what you need
+to know before clicking (what's being deleted, the one fact that'd surprise
+you, and that it can't be undone), not a full explanation of every
+consequence. If a dialog or a label leaves something unclear, the matching
+Wiki article (or the section of this README it came from) is where the full
+answer is, not a longer dialog.
 
 ### Visual design
 Blue accent color for primary actions/links/icons against a neutral light

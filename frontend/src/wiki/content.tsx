@@ -51,6 +51,44 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
     label: "Getting started",
     articles: [
       {
+        id: "installation-and-setup",
+        title: "Installation and setup",
+        overview: (
+          <>
+            <P>
+              DeployCore installs with one script and configures itself through a one-time setup wizard
+              on first launch, no manual database or config-file editing needed either time.
+            </P>
+          </>
+        ),
+        deepDive: (
+          <>
+            <P>
+              <Code>scripts/setup.sh</Code> generates <Code>APP_SECRET_KEY</Code> if you leave it blank,
+              the Fernet key DeployCore encrypts every stored credential and password with (hypervisor
+              credentials, local admin/domain-join passwords, M365 client secret) and signs JWTs with,
+              then builds and starts every container with Docker Compose. Database
+              migrations run automatically on every <Code>api</Code> container start, both for this first
+              install and every later update, there's no separate migration step to remember.
+            </P>
+            <P>
+              The setup wizard itself appears the first time you open the app: it asks for an instance
+              name (shown in the sidebar and browser tab until you set a logo, see "Branding your
+              instance") and creates the first admin account (username and password required, email
+              optional, see "Users, roles, and permissions" for what email is used for). It also creates a
+              default global disk layout automatically, so a brand-new instance already has one to pick
+              from the first time you build a template. The wizard is a one-time, one-way door: once any
+              user account exists, its endpoint locks out with a <Code>409</Code> and it never shows again,
+              new users after that are created from the Users page instead.
+            </P>
+            <P>
+              Once running, keeping DeployCore current is a single click, not a redo of any of this, see
+              "Self-update" for exactly how that works and what it does and doesn't touch.
+            </P>
+          </>
+        ),
+      },
+      {
         id: "first-deployment",
         title: "Deploying your first server, end to end",
         overview: (
@@ -142,6 +180,13 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   organization inherits them read-only and can clone one into its own org-scoped copy.</>,
               ]}
             />
+            <P>
+              The Dashboard is per-organization by default (running/completed/failed deployment counts,
+              hypervisor connection health, and the 8 most recent deployments for whichever organization
+              is currently selected). A global admin additionally gets a cross-organization overview: one
+              row per organization with those same counts side by side, click a row to switch the active
+              organization instead of using the picker in the header.
+            </P>
           </>
         ),
       },
@@ -180,8 +225,8 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
             </P>
             <P>
               Only a global admin can do this (the same floor as creating an organization in the first
-              place), and the confirmation dialog spells out everything above again before it lets you
-              proceed.
+              place). The confirmation dialog itself is intentionally short, this article is the full
+              detail behind it.
             </P>
           </>
         ),
@@ -336,7 +381,7 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
             <List
               items={[
                 "Name (label shown throughout the UI)",
-                "API endpoint (the ESXi/vCenter host address)",
+                "API endpoint: the ESXi/vCenter host's IP address or hostname",
                 "Username and credential (the credential is write-only, it's never returned by the API again once saved)",
                 "TLS verification toggle (turn off only for a self-signed lab host you trust)",
                 "Default datastore, used when creating a VM if nothing more specific is set",
@@ -383,10 +428,12 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               <Code>install.wim</Code> (Windows Server media typically ships several: Standard/Datacenter
               crossed with Server Core/Desktop Experience, all in one file, selected only by an install-time
               index). This reads the WIM's own embedded XML metadata, it doesn't need to actually install
-              anything to know what's available. Templates use this list to offer a named edition picker
-              instead of a bare number, see "Templates and Windows roles". An ISO with no detectable
-              editions (non-Microsoft media, or an ISO uploaded before this existed) just falls back to a
-              plain image-index number field.
+              anything to know what's available, including which editions actually have a GUI (Desktop
+              Experience) versus which are Server Core, read from the WIM's own edition flags rather than
+              guessed from the edition's name. Templates use this list to offer a named, GUI/Core-labeled
+              edition picker instead of a bare number, see "Templates and Windows roles". An ISO with no
+              detectable editions (non-Microsoft media, or an ISO uploaded before this existed) just falls
+              back to a plain image-index number field.
             </P>
             <P>
               Deleting an ISO asset removes the file from disk and the database record. If any template
@@ -510,11 +557,16 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                 "Name, and the Windows ISO to use (a template can exist before an ISO is attached, but it can't deploy until one is set)",
                 <>The Windows <strong>edition</strong> to install from that ISO's <Code>install.wim</Code>. If
                   the ISO asset has detected editions (see "ISO assets"), this is a dropdown of the actual
-                  named choices (e.g. "2 — SERVERSTANDARD: Windows Server 2025 Standard (Desktop
-                  Experience)"); otherwise it's a plain image-index number. This defaults to index 1, which
-                  is <em>not</em> a considered default, it's whatever Microsoft's media happens to put
-                  first, typically Server Core (no GUI) on standard multi-edition Server ISOs, check the
-                  dropdown rather than assuming.</>,
+                  named choices, each one tagged with an explicit "Desktop Experience, has a GUI" or "Server
+                  Core, no GUI" label (e.g. "2 — Windows Server 2025 Standard (Desktop Experience) — Desktop
+                  Experience, has a GUI") so you never have to guess which index gets you a GUI, otherwise
+                  it's a plain image-index number. This defaults to index 1, which is <em>not</em> a
+                  considered default, it's whatever Microsoft's media happens to put first, typically Server
+                  Core (no GUI) on standard multi-edition Server ISOs, check the dropdown rather than
+                  assuming. That GUI/Core label comes from the WIM's own <Code>FLAGS</Code> metadata (a
+                  Core edition's flag always ends in <Code>Core</Code>, e.g. <Code>ServerStandardCore</Code>),
+                  not from parsing the edition name, so it's reliable even on media whose name/description
+                  doesn't spell "(Desktop Experience)" out.</>,
                 <>Disk layout, CPU count and cores per socket, RAM (MB), disk size (GB) and its{" "}
                   <strong>provisioning type</strong>: thin (space allocated on demand), thick lazily zeroed
                   (space reserved up front, zeroed on first write), or thick eagerly zeroed (space reserved
@@ -1199,8 +1251,8 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               <strong>deployment timeout</strong>: a deployment stuck past this many minutes in any
               non-terminal stage is force-failed automatically and cleaned up. It defaults to 90 minutes
               and has its own labeled field on the Settings page; an "Advanced" section underneath still
-              exposes the raw key/value store directly, for anything that doesn't have a dedicated field
-              yet.
+              exposes the raw key/value store directly (value can be plain text or JSON, stored as JSONB
+              either way), for anything that doesn't have a dedicated field yet.
             </P>
             <P>
               Panels that have more than one field to change use a single <strong>Apply changes</strong>{" "}

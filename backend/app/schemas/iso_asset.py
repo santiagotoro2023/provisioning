@@ -14,6 +14,10 @@ class WindowsEditionInfo(BaseModel):
     index: int
     name: str
     description: str
+    # Derived from the WIM's own FLAGS metadata (falls back to scanning
+    # name/description for "core" if FLAGS is missing): True for Desktop
+    # Experience editions (has a GUI), False for Server Core ones.
+    has_gui: bool
 
 
 class IsoAssetRead(BaseModel):

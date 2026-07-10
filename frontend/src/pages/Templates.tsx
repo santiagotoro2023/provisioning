@@ -427,7 +427,9 @@ function TemplateForm({
                   onChange={(e) => setImageIndex(Number(e.target.value))}
                 >
                   {editions.map((ed) => (
-                    <option key={ed.index} value={ed.index}>{ed.index} — {ed.name || ed.description}</option>
+                    <option key={ed.index} value={ed.index}>
+                      {ed.index} — {ed.name || ed.description} — {ed.has_gui ? "Desktop Experience, has a GUI" : "Server Core, no GUI"}
+                    </option>
                   ))}
                 </Select>
               ) : (
@@ -472,7 +474,7 @@ function TemplateForm({
           </Select>
         </div>
 
-        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Network name (ESXi/vCenter port group, not a Windows name)</label>
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Network name</label>
         <div className="mb-3 grid grid-cols-2 gap-3">
           <input required className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={networkName} onChange={(e) => setNetworkName(e.target.value)} />
           <Select className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm" value={networkAdapterType} onChange={(e) => setNetworkAdapterType(e.target.value as NetworkAdapterType)}>
@@ -484,11 +486,11 @@ function TemplateForm({
 
         <div className="mb-3 grid grid-cols-3 gap-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Locale (Windows id, not IETF)</label>
+            <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Locale</label>
             <input className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={locale} onChange={(e) => setLocale(e.target.value)} />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Timezone (Windows id, not IANA)</label>
+            <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Timezone</label>
             <input className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
           </div>
           <div>

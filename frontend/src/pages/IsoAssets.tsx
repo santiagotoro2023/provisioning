@@ -114,8 +114,8 @@ export default function IsoAssets() {
         message={
           <>
             {confirmDelete?.org_id
-              ? `Delete "${confirmDelete?.filename}"? This removes the file from disk. Templates referencing it will have their ISO cleared and refuse to deploy until a new one is attached. This cannot be undone.`
-              : `Delete "${confirmDelete?.filename}"? This is a global ISO, templates in every organization that reference it will have their ISO cleared and refuse to deploy until a new one is attached. This cannot be undone.`}
+              ? `Delete "${confirmDelete?.filename}"? Templates using it will need a new ISO attached. This cannot be undone.`
+              : `Delete "${confirmDelete?.filename}"? This is a global ISO — templates in every organization using it will need a new ISO attached. This cannot be undone.`}
             {deleteError && <div className="mt-2 text-red-600 dark:text-red-400">{deleteError}</div>}
           </>
         }

@@ -125,8 +125,8 @@ export default function AppAssets() {
         message={
           <>
             {confirmDelete?.org_id
-              ? `Delete "${confirmDelete?.name}"? This removes the file from disk. Any template still listing it to install will skip it (logged as an error) rather than failing the deployment outright. This cannot be undone.`
-              : `Delete "${confirmDelete?.name}"? This is a global app asset, templates in every organization that list it will skip it (logged as an error) rather than failing outright. This cannot be undone.`}
+              ? `Delete "${confirmDelete?.name}"? Templates listing it will just skip it at deploy time. This cannot be undone.`
+              : `Delete "${confirmDelete?.name}"? This is a global app asset — templates in every organization listing it will just skip it at deploy time. This cannot be undone.`}
             {deleteError && <div className="mt-2 text-red-600 dark:text-red-400">{deleteError}</div>}
           </>
         }

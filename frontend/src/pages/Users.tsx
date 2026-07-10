@@ -238,11 +238,7 @@ export default function Users() {
         title="Delete user"
         message={
           <>
-            <p>
-              Permanently deletes {confirmDelete?.username}'s account and every organization role
-              assignment. Deployments they created are kept, just no longer attributed to them. This
-              cannot be undone. To temporarily block sign-in instead, use Deactivate.
-            </p>
+            {`Permanently deletes ${confirmDelete?.username}'s account. This cannot be undone — use Deactivate instead to only block sign-in.`}
             {deleteError && <p className="mt-2 text-red-600">{deleteError}</p>}
           </>
         }
@@ -344,7 +340,7 @@ function CreateUserForm({ onClose, onCreated }: { onClose: () => void; onCreated
         <input autoComplete="off" className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={username} onChange={(e) => setUsername(e.target.value)} />
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Display name</label>
         <input className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Email (optional, for future notifications)</label>
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Email (optional)</label>
         <input type="email" autoComplete="off" className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={email} onChange={(e) => setEmail(e.target.value)} />
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Password</label>
         <input type="password" autoComplete="new-password" className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={password} onChange={(e) => setPassword(e.target.value)} />

@@ -608,7 +608,7 @@ function M365Panel() {
         value={clientSecret}
         onChange={(e) => setClientSecret(e.target.value)}
       />
-      <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Sender mailbox (UPN)</label>
+      <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Sender mailbox</label>
       <input className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={senderUpn} onChange={(e) => setSenderUpn(e.target.value)} />
       <label className="mb-3 flex items-center gap-2 text-xs font-medium text-neutral-600 dark:text-neutral-400">
         <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
@@ -753,7 +753,7 @@ function OrgSettingsPanel() {
               <h2 className="mb-3 text-sm font-semibold">Set organization override</h2>
               <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Key</label>
               <input className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={key} onChange={(e) => setKey(e.target.value)} />
-              <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Value (JSON or plain text)</label>
+              <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Value</label>
               <input className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" value={value} onChange={(e) => setValue(e.target.value)} />
               {error && <div className="mb-3 text-xs text-red-600">{error}</div>}
               <button type="submit" className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700">Save</button>
