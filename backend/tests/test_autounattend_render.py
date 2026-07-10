@@ -179,6 +179,21 @@ def test_ui_language_has_a_fallback():
     assert winpe_intl.xpath("string(u:SetupUILanguage/u:UILanguage)", namespaces=NS) == "de-CH"
 
 
+def test_oobe_sets_protectyourpc_and_networklocation():
+    """Hide*/Skip* alone don't cover every OOBE screen: ProtectYourPC has
+    no default at all and Microsoft's own docs say plainly that leaving it
+    unset opens the "Get going fast" diagnostic-data/privacy consent
+    screen regardless of the other flags, confirmed the hard way in real
+    testing. NetworkLocation is the same shape for the "Computer's Current
+    Location" network-profile prompt, which a guest with a real network
+    connection (every deployment has one) legitimately triggers."""
+    root = etree.fromstring(render_autounattend(_make_deployment(), _make_template(), _basic_disk_layout()).encode())
+
+    oobe = root.xpath("//u:component[@name='Microsoft-Windows-Shell-Setup']/u:OOBE", namespaces=NS)[0]
+    assert oobe.xpath("string(u:ProtectYourPC)", namespaces=NS) == "3"
+    assert oobe.xpath("string(u:NetworkLocation)", namespaces=NS) == "Home"
+
+
 def test_custom_admin_disabled_by_default_keeps_builtin_administrator():
     """Off by default: no LocalAccounts entry, the built-in Administrator
     keeps its password and is never touched by FirstLogonCommands, and

@@ -116,11 +116,28 @@
                 <LogonCount>1</LogonCount>
                 <Username>{{ template.local_admin_username }}</Username>
             </AutoLogon>
+            <!-- HideEULAPage/HideLocalAccountScreen/HideOnlineAccountScreens/
+                 HideWirelessSetupInOOBE/SkipMachineOOBE/SkipUserOOBE alone
+                 were never the full picture, confirmed against Microsoft's
+                 own "Automate OOBE" guidance: ProtectYourPC has no default
+                 value at all, and its own doc says plainly "if a value is
+                 not set, the Get going fast page opens during setup", the
+                 exact diagnostic-data/privacy consent screen seen in
+                 testing despite every Hide*/Skip* flag already being set,
+                 none of them cover it. NetworkLocation is the same shape
+                 (deprecated on Windows 10 client, but still the documented
+                 way to suppress the "Computer's Current Location" network
+                 profile prompt, which a Windows Server guest with a real
+                 network connection - every deployment here has one -
+                 legitimately triggers otherwise). -->
             <OOBE>
                 <HideEULAPage>true</HideEULAPage>
                 <HideLocalAccountScreen>true</HideLocalAccountScreen>
+                <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
                 <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
                 <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+                <NetworkLocation>Home</NetworkLocation>
+                <ProtectYourPC>3</ProtectYourPC>
                 <SkipMachineOOBE>true</SkipMachineOOBE>
                 <SkipUserOOBE>true</SkipUserOOBE>
             </OOBE>
