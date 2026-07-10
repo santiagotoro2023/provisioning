@@ -695,11 +695,17 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   OOBE. See <strong>"Unattended Windows Setup, in depth"</strong> for exactly how the boot
                   prompt, the answer-file delivery, and locale/keyboard get handled, and what the two
                   remaining synthetic-keypress fallbacks are actually for.</>,
-                <>The guest calls back to DeployCore once Windows Setup finishes (a single-use token per
-                  deployment), which is what advances the state from booting to installing_os. That
-                  callback is also the point DeployCore is sure Setup is done with the install media for
-                  good: it ejects the Windows/VirtIO ISOs, removes the floppy device, and deletes the
-                  per-deployment answer-file floppy from the datastore, all best-effort and never worth
+                <>The deployment moves into <Code>installing_os</Code> right after the VM is powered on
+                  and DeployCore has done everything it can from its side (boot-order, synthetic
+                  keypresses), not when Windows Setup actually finishes: there's no way to observe real
+                  progress inside WinPE/Setup at all, so this state simply covers that entire black-box
+                  window rather than staying <Code>booting</Code> for it and jumping straight to done. The
+                  guest calls back to DeployCore once Windows Setup actually finishes (a single-use token
+                  per deployment, <Code>callback_token_used</Code>, checked rather than the state itself,
+                  since the state was already <Code>installing_os</Code> before the callback exists to
+                  react to). That callback is the point DeployCore is sure Setup is done with the install
+                  media for good: it ejects the Windows/VirtIO ISOs, removes the floppy device, and deletes
+                  the per-deployment answer-file floppy from the datastore, all best-effort and never worth
                   failing an otherwise-successful deployment over. Nothing from here on (post-install runs
                   entirely over WinRM) needs any of it.</>,
                 <>Post-install runs over WinRM once the guest reports an IP: apply static network config
@@ -958,15 +964,24 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                 <><strong>Download full log</strong> on that same page bundles the deployment's details,
                   full state-transition history, and every log line into one plain-text file, the fastest
                   way to hand a failure off to someone else or attach to a ticket.</>,
-                <><strong>Stuck in <Code>booting</Code> or <Code>installing_os</Code> for a long time?</strong>{" "}
-                  The guest calls back to DeployCore once Windows Setup finishes; if that callback can
-                  never arrive (<Code>APP_PUBLIC_URL</Code> isn't reachable from the VM's network) the
-                  deployment will sit there until its timeout trips. Confirm <Code>APP_PUBLIC_URL</Code>{" "}
-                  really is reachable from the organization's hypervisor network, not just from your own
-                  machine, that it's this host's actual LAN address rather than <Code>localhost</Code>{" "}
-                  (which resolves to the guest VM itself when that string ends up inside a command running
-                  on it, not to DeployCore), and that it's still plain <Code>http://</Code> on port 8000,
-                  not routed through the HTTPS proxy, see "HTTPS certificate" for why.</>,
+                <><strong><Code>installing_os</Code> for the whole time Windows Setup is running is
+                  expected</strong>, not stuck: that state covers the entire black-box window from "VM
+                  powered on" to "guest called back," there's no way to observe real progress inside
+                  WinPE/Setup, so it's normal for this to be by far the longest-lived state, typically the
+                  bulk of a deployment's total time. <Code>booting</Code> itself should be brief (VM
+                  power-on plus the synthetic boot keypresses), it moves into{" "}
+                  <Code>installing_os</Code> on its own well before Setup is actually done installing
+                  anything.</>,
+                <><strong>Actually stuck (past the timeout, force-failed with a callback-timeout
+                  error)?</strong> The guest calls back to DeployCore once Windows Setup finishes; if that
+                  callback can never arrive (<Code>APP_PUBLIC_URL</Code> isn't reachable from the VM's
+                  network) the deployment sits in <Code>installing_os</Code> until its timeout trips.
+                  Confirm <Code>APP_PUBLIC_URL</Code> really is reachable from the organization's
+                  hypervisor network, not just from your own machine, that it's this host's actual LAN
+                  address rather than <Code>localhost</Code> (which resolves to the guest VM itself when
+                  that string ends up inside a command running on it, not to DeployCore), and that it's
+                  still plain <Code>http://</Code> on port 8000, not routed through the HTTPS proxy, see
+                  "HTTPS certificate" for why.</>,
                 <><strong>Fails immediately with "template has no Windows ISO configured"?</strong> The
                   template was created (or exported/imported) before an ISO was attached to it, attach one
                   on the Templates page.</>,

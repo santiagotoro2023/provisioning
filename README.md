@@ -556,10 +556,16 @@ pending → creating_vm → booting → installing_os → post_install → confi
   has a long-standing upstream quirk on some locales where `InputLocale`
   isn't honored on that one specific screen even though the rest of the
   answer file (including the specialize-pass locale, see below) applies
-  correctly. The guest's `FirstLogonCommands` always: enable WinRM and open
-  a firewall rule for it; call back to `/api/callback/{token}` (single-use
-  per-deployment token), which is what advances `booting → installing_os`.
-  If `template.custom_admin_enabled` is on (off by default), two more
+  correctly. `booting → installing_os` is driven by the worker itself, right
+  after power-on and the synthetic-keypress rounds above, not by the
+  callback: there's no way to observe real progress inside WinPE/Setup at
+  all, so `installing_os` is deliberately the state for that entire
+  black-box window, not just its very end. The guest's `FirstLogonCommands`
+  always: enable WinRM and open a firewall rule for it; call back to
+  `/api/callback/{token}` (single-use per-deployment token, sets
+  `callback_token_used`, which `wait_for_callback` polls for instead of a
+  state change, since the state's already `installing_os` by the time this
+  fires). If `template.custom_admin_enabled` is on (off by default), two more
   commands render: `LocalAccountTokenFilterPolicy=1` right after enabling
   WinRM (by default Windows' UAC remote restriction only exempts the
   actual built-in Administrator (RID 500) from a filtered, non-elevated

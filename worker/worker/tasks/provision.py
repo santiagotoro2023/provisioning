@@ -264,14 +264,25 @@ async def run_deployment(ctx, deployment_id: str) -> None:
                 except Exception:  # noqa: BLE001 - best-effort
                     pass
 
-            await log(db, deployment, "booting", "VM powered on, awaiting guest OS install callback")
-
             for _ in range(LANGUAGE_SCREEN_KEYPRESS_ATTEMPTS):
                 await asyncio.sleep(LANGUAGE_SCREEN_KEYPRESS_INTERVAL_SECONDS)
                 try:
                     await driver.send_enter_keypress(vm_ref)
                 except Exception:  # noqa: BLE001 - best-effort
                     pass
+
+            # Everything DeployCore can actively do to get Setup running
+            # unattended off the ISO is done by this point; from here it's
+            # entirely a black box until the guest calls back from
+            # FirstLogonCommands (Setup fully finished, first boot into the
+            # installed OS), there's no way to observe WinPE/Setup progress
+            # in between. Moving into installing_os here rather than
+            # leaving the deployment shown as "booting" for that whole
+            # window is the accurate state either way, this just says so
+            # instead of waiting for the one signal that arrives only once
+            # installation is already over.
+            await _state_machine.transition(db, deployment, DeploymentState.INSTALLING_OS)
+            await log(db, deployment, "installing_os", "Windows Setup running, awaiting guest OS install callback")
         except Exception as exc:  # noqa: BLE001 - surfaced to the operator via the log/error_message
             await _fail(ctx, db, driver, deployment, f"failed while {current_step}: {exc}", traceback.format_exc())
             return
@@ -288,11 +299,15 @@ async def wait_for_callback(ctx, deployment_id: str) -> None:
         host = await db.get(HypervisorHost, deployment.hypervisor_host_id)
         driver = get_driver(host)
 
-        # If the guest's callback already landed (and flipped state past
-        # BOOTING) before this job even started, skip straight to eject +
-        # post-install instead of polling, the race is real since the
-        # callback route and this job both react to the same VM boot.
-        if deployment.state == DeploymentState.BOOTING:
+        # Deployment is already in installing_os by the time this job is
+        # enqueued (run_deployment sets that itself, see above), so state
+        # can't be used to detect whether the callback already landed the
+        # way it used to; callback_token_used is the actual signal, the
+        # callback route sets it and nothing else does. If it's already
+        # true, the guest called back before this job even started polling
+        # (the race is real, the callback route and this job both react to
+        # the same VM boot), skip straight to eject + post-install.
+        if not deployment.callback_token_used:
             timeout_minutes = await settings_resolver.resolve(
                 db, "os_install_timeout_minutes", org_id=deployment.org_id, template_id=deployment.template_id
             )
@@ -300,8 +315,10 @@ async def wait_for_callback(ctx, deployment_id: str) -> None:
 
             while datetime.now(timezone.utc) < deadline:
                 await db.refresh(deployment)
-                if deployment.state != DeploymentState.BOOTING:
-                    break  # callback route already advanced this deployment
+                if deployment.callback_token_used:
+                    break
+                if deployment.state == DeploymentState.FAILED:
+                    return  # failed elsewhere (e.g. the stale-deployment sweep) while this was polling
                 await asyncio.sleep(CALLBACK_POLL_INTERVAL_SECONDS)
             else:
                 await _fail(ctx, db, driver, deployment, "timed out waiting for the guest OS install callback")
