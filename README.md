@@ -48,10 +48,16 @@ works too, useful for local development.
 One setting worth checking before you provision real VMs:
 `APP_PUBLIC_URL` in `.env`. This is the address your ESXi guest VMs call back
 to once Windows Setup finishes, it needs to be reachable from your customer
-networks, not just from your own laptop. `localhost` only works if DeployCore
-and the VM happen to share a network where that resolves, which is rare in
-practice. Set it to this host's real, routable address, then
-`docker compose up -d` to pick up the change.
+networks, not just from your own laptop. `localhost` almost never works: that
+value is baked as a literal string into PowerShell commands that run *inside
+the guest itself*, so "localhost" resolves to the VM, not to DeployCore.
+Set it to this host's real, routable address (an IP or hostname the VM's
+network can actually reach), then `docker compose up -d` to pick up the
+change. Keep it `http://`, on port 8000, not `https://`/443: that port is the
+`api` container exposed directly (`8000:8000`), a separate path from the
+HTTPS reverse proxy that only fronts the browser UI, on purpose, since a
+fresh Windows guest's default PowerShell can't easily validate the
+proxy's self-signed certificate.
 
 ## First run, step by step
 
@@ -854,7 +860,7 @@ fills in `APP_SECRET_KEY` for you.
 | `APP_SECRET_KEY` | yes | none | Fernet key for credential encryption and JWT signing |
 | `DATABASE_URL` | yes | none | `postgresql+asyncpg://...` |
 | `REDIS_URL` | yes | none | `redis://...`, shared by arq, the login rate limiter, and session tracking |
-| `APP_PUBLIC_URL` | no | `http://localhost:8000` | Base URL guest VMs use to reach `/api/callback`, must be reachable from provisioned VMs |
+| `APP_PUBLIC_URL` | no | `http://localhost:8000` | Base URL guest VMs use to reach `/api/callback` and app-asset downloads; must be reachable from provisioned VMs (not `localhost`), and stays plain `http://` on port 8000, bypassing the HTTPS proxy on purpose (see "HTTPS certificate") |
 | `ISO_STORAGE_PATH` | no | `/data/isos` | Permanent ISO and logo storage inside the `api`/`worker` containers |
 | `ISO_BUILD_TMP` | no | `/data/iso_build_tmp` | Scratch space for answer-file floppy builds and in-progress ISO uploads |
 | `APP_ASSET_STORAGE_PATH` | no | `/data/app_assets` | Permanent MSI/EXE installer storage, `api` container only (the worker never touches these bytes directly, the guest downloads them itself) |

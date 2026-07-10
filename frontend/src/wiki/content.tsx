@@ -938,7 +938,10 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   never arrive (<Code>APP_PUBLIC_URL</Code> isn't reachable from the VM's network) the
                   deployment will sit there until its timeout trips. Confirm <Code>APP_PUBLIC_URL</Code>{" "}
                   really is reachable from the organization's hypervisor network, not just from your own
-                  machine.</>,
+                  machine, that it's this host's actual LAN address rather than <Code>localhost</Code>{" "}
+                  (which resolves to the guest VM itself when that string ends up inside a command running
+                  on it, not to DeployCore), and that it's still plain <Code>http://</Code> on port 8000,
+                  not routed through the HTTPS proxy, see "HTTPS certificate" for why.</>,
                 <><strong>Fails immediately with "template has no Windows ISO configured"?</strong> The
                   template was created (or exported/imported) before an ISO was attached to it, attach one
                   on the Templates page.</>,
@@ -1146,6 +1149,16 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               Postgres, and the <Code>proxy</Code> container polls that same table on an interval and
               reloads Caddy's config when it no longer matches what's currently serving. Neither
               container talks to the other directly.
+            </P>
+            <P>
+              This certificate only covers <strong>browser</strong> traffic to the UI (and, through
+              the frontend's own dev proxy, the API calls your browser makes). It has nothing to do
+              with how a guest VM calls back to DeployCore during provisioning, that path
+              (<Code>APP_PUBLIC_URL</Code>) intentionally stays plain <Code>http://</Code> straight to
+              the <Code>api</Code> container's own directly-exposed port 8000, bypassing this proxy
+              entirely, because a fresh Windows guest's default PowerShell has no easy way to trust (or
+              skip validating) a self-signed certificate. See "Troubleshooting a failed or stuck
+              deployment" if a deployment is stuck waiting for that callback.
             </P>
           </>
         ),
