@@ -1,0 +1,47 @@
+<!-- "Ethernet" is the name Windows Setup assigns the first network
+     adapter on a fresh install; every deployment DeployCore creates has
+     exactly one NIC (a template has a single network_name/adapter_type,
+     no multi-NIC support exists), so this is reliable rather than a
+     guess. Configured here, in the specialize pass, rather than over
+     WinRM in post_install: that used to connect to whatever DHCP handed
+     out first, then reconfigure to the static address remotely, which
+     can't work at all on a network with no DHCP server to hand out that
+     first address in the first place. This way the static config is
+     live before Windows Setup even finishes, no DHCP involved anywhere. -->
+<component name="Microsoft-Windows-TCPIP" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+    <Interfaces>
+        <Interface wcm:action="add">
+            <Identifier>Ethernet</Identifier>
+            <Ipv4Settings>
+                <DhcpEnabled>false</DhcpEnabled>
+            </Ipv4Settings>
+            <UnicastIpAddresses>
+                <IpAddress wcm:action="add" wcm:keyValue="1">{{ deployment.static_ip }}/{{ static_prefix }}</IpAddress>
+            </UnicastIpAddresses>
+{% if deployment.static_gateway %}
+            <Routes>
+                <Route wcm:action="add">
+                    <Identifier>1</Identifier>
+                    <Prefix>0.0.0.0/0</Prefix>
+                    <NextHopAddress>{{ deployment.static_gateway }}</NextHopAddress>
+                    <Metric>1</Metric>
+                </Route>
+            </Routes>
+{% endif %}
+        </Interface>
+    </Interfaces>
+</component>
+{% if deployment.static_dns %}
+<component name="Microsoft-Windows-DNS-Client" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+    <Interfaces>
+        <Interface wcm:action="add">
+            <Identifier>Ethernet</Identifier>
+            <DNSServerSearchOrder>
+{% for dns in deployment.static_dns %}
+                <IpAddress wcm:action="add" wcm:keyValue="{{ loop.index }}">{{ dns }}</IpAddress>
+{% endfor %}
+            </DNSServerSearchOrder>
+        </Interface>
+    </Interfaces>
+</component>
+{% endif %}

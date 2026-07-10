@@ -609,10 +609,21 @@ pending → creating_vm → booting → installing_os → post_install → confi
   keyboard for that locale, not necessarily its own named one;
   `template_render.py` resolves this automatically for the locales it
   knows about, or passes through an already-hex value unchanged
-- Post-install phase (over WinRM once the guest reports an IP, authenticating
-  as `template.local_admin_username`, not the now-disabled built-in
-  Administrator): apply static network config if requested, install each
-  configured Windows feature, install each configured app asset in order
+- A static deployment's IP/netmask/gateway/DNS are set declaratively in the
+  answer file's specialize pass (`Microsoft-Windows-TCPIP`/
+  `Microsoft-Windows-DNS-Client`, see `_static_network.xml.j2`), live before
+  Windows Setup even finishes, not reconfigured over WinRM afterward: that
+  used to mean connecting at whatever address DHCP handed out first, then
+  reassigning it to the static address remotely, which simply can't work on
+  a network with no DHCP server to hand out that first address at all.
+  `Identifier` targets the adapter by name (`Ethernet`, what Windows Setup
+  names the first NIC on a fresh install), reliable here since a template
+  only ever configures one network adapter, there's no multi-NIC support
+- Post-install phase (over WinRM once the guest reports an IP, its static
+  address directly for a static deployment, authenticating as
+  `template.local_admin_username`, not the now-disabled built-in
+  Administrator): install each configured Windows feature, install each
+  configured app asset in order
   (the guest downloads each installer itself over `Invoke-WebRequest`, see
   the App Assets section above for the token/download flow, then runs it
   silently and deletes it), run each post-install script in order, join

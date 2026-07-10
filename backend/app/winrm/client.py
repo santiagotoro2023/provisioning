@@ -56,16 +56,6 @@ class WinRMClient:
         )
         return self.run_ps(script)
 
-    def set_static_network(self, ip: str, netmask_prefix: int, gateway: str, dns: list[str]) -> WinRMResult:
-        dns_list = ",".join(f"'{d}'" for d in dns)
-        script = (
-            "$adapter = Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1; "
-            f"New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress '{ip}' "
-            f"-PrefixLength {netmask_prefix} -DefaultGateway '{gateway}'; "
-            f"Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses ({dns_list})"
-        )
-        return self.run_ps(script)
-
     def install_app(self, download_url: str, remote_path: str, kind: str, install_args: str) -> WinRMResult:
         """Downloads an installer from DeployCore over the guest's own
         Invoke-WebRequest (not pushed by the worker, same reasoning as the

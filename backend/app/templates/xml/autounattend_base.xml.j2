@@ -52,6 +52,9 @@
             <UILanguage>{{ template.locale }}</UILanguage>
             <UserLocale>{{ template.locale }}</UserLocale>
         </component>
+{% if deployment.ip_mode == "static" and deployment.static_ip and static_prefix %}
+{% include "_static_network.xml.j2" %}
+{% endif %}
 {% if template.domain_join_enabled and template.domain_join_timing == "answer_file" %}
 {% include "_domain_join.xml.j2" %}
 {% endif %}

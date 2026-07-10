@@ -34,8 +34,8 @@ def _make_template(**overrides) -> DeploymentTemplate:
     return template
 
 
-def _make_deployment() -> Deployment:
-    return Deployment(
+def _make_deployment(**overrides) -> Deployment:
+    defaults = dict(
         org_id=uuid.uuid4(),
         template_id=uuid.uuid4(),
         hypervisor_host_id=uuid.uuid4(),
@@ -44,6 +44,8 @@ def _make_deployment() -> Deployment:
         callback_token="test-token-123",
         created_by_user_id=uuid.uuid4(),
     )
+    defaults.update(overrides)
+    return Deployment(**defaults)
 
 
 def _basic_disk_layout(**layout_overrides) -> DiskLayout:
@@ -214,6 +216,40 @@ def test_autologon_targets_whichever_account_is_meant_to_be_used():
     commands = root.xpath("//u:FirstLogonCommands/u:SynchronousCommand", namespaces=NS)
     first_command = commands[0].xpath("string(u:CommandLine)", namespaces=NS)
     assert "DefaultPassword" in first_command and "AutoAdminLogon" in first_command
+
+
+def test_static_ip_configured_declaratively_not_over_dhcp():
+    """The static IP has to be live before Windows Setup even finishes,
+    set declaratively in the specialize pass, not reconfigured over WinRM
+    afterward (that used to require a DHCP-assigned address to connect to
+    in the first place, which doesn't exist on a DHCP-less network)."""
+    deployment = _make_deployment(
+        ip_mode=IpMode.STATIC,
+        static_ip="192.168.10.50",
+        static_netmask="255.255.255.0",
+        static_gateway="192.168.10.1",
+        static_dns=["192.168.10.2", "8.8.8.8"],
+    )
+    root = etree.fromstring(render_autounattend(deployment, _make_template(), _basic_disk_layout()).encode())
+
+    tcpip = root.xpath("//u:component[@name='Microsoft-Windows-TCPIP']", namespaces=NS)[0]
+    assert tcpip.xpath("string(.//u:Identifier)", namespaces=NS) == "Ethernet"
+    assert tcpip.xpath("string(.//u:DhcpEnabled)", namespaces=NS) == "false"
+    assert tcpip.xpath("string(.//u:IpAddress)", namespaces=NS) == "192.168.10.50/24"
+    assert tcpip.xpath("string(.//u:NextHopAddress)", namespaces=NS) == "192.168.10.1"
+
+    dns_addresses = root.xpath(
+        "//u:component[@name='Microsoft-Windows-DNS-Client']//u:IpAddress/text()", namespaces=NS
+    )
+    assert dns_addresses == ["192.168.10.2", "8.8.8.8"]
+
+
+def test_dhcp_deployment_has_no_static_network_component():
+    root = etree.fromstring(
+        render_autounattend(_make_deployment(), _make_template(), _basic_disk_layout()).encode()
+    )
+    assert root.xpath("//u:component[@name='Microsoft-Windows-TCPIP']", namespaces=NS) == []
+    assert root.xpath("//u:component[@name='Microsoft-Windows-DNS-Client']", namespaces=NS) == []
 
 
 def test_local_accounts_creates_custom_admin_and_still_sets_builtin_password():

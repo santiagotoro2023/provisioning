@@ -13,7 +13,7 @@ from app.hypervisors import get_driver
 from app.hypervisors.base import HypervisorDriver, VmSpec
 from app.hypervisors.defaults import HYPERVISOR_DEFAULTS
 from app.models.app_asset import AppAsset
-from app.models.deployment import Deployment, DeploymentState, IpMode, LogLevel
+from app.models.deployment import Deployment, DeploymentState, LogLevel
 from app.models.disk_layout import DiskLayout
 from app.models.hypervisor import HypervisorHost
 from app.models.iso_asset import IsoAsset, IsoKind
@@ -22,7 +22,7 @@ from app.services import notifications, settings_resolver, webhooks
 from app.services.deployment_service import DeploymentStateMachine, InvalidTransition, log
 from app.services.floppy_builder import build_and_upload_answer_floppy
 from app.services.template_render import render_autounattend
-from app.winrm.client import WinRMClient, netmask_to_prefix
+from app.winrm.client import WinRMClient
 
 _state_machine = DeploymentStateMachine()
 
@@ -350,6 +350,11 @@ async def run_post_install(ctx, deployment_id: str) -> None:
             return
 
         try:
+            # A static deployment's IP is already live at this point (see
+            # autounattend_base.xml.j2/_static_network.xml.j2: it's set
+            # declaratively in the specialize pass, no DHCP involved at
+            # any point), so get_guest_ip reports it directly like it
+            # would a DHCP address, one connection is enough either way.
             await log(db, deployment, "post_install", "waiting for guest IP address")
             guest_ip = None
             for _ in range(WINRM_REACHABILITY_MAX_ATTEMPTS):
@@ -369,27 +374,6 @@ async def run_post_install(ctx, deployment_id: str) -> None:
                 raise RuntimeError(f"guest at {guest_ip} never became reachable over WinRM")
 
             await _state_machine.transition(db, deployment, DeploymentState.POST_INSTALL)
-
-            if deployment.ip_mode == IpMode.STATIC:
-                await log(db, deployment, "post_install", f"applying static network config {deployment.static_ip}")
-                result = client.set_static_network(
-                    deployment.static_ip,
-                    netmask_to_prefix(deployment.static_netmask),
-                    deployment.static_gateway,
-                    deployment.static_dns or [],
-                )
-                if not result.ok:
-                    raise RuntimeError(f"static network config failed: {result.stderr}")
-                # the guest is no longer reachable at its DHCP address once
-                # this takes effect, reconnect on the new static address
-                # for every subsequent call in this phase.
-                client = WinRMClient(deployment.static_ip, template.local_admin_username, template.local_admin_password)
-                for _ in range(WINRM_REACHABILITY_MAX_ATTEMPTS):
-                    if client.is_reachable():
-                        break
-                    await asyncio.sleep(WINRM_REACHABILITY_POLL_INTERVAL_SECONDS)
-                else:
-                    raise RuntimeError(f"guest at {deployment.static_ip} never became reachable after static network config")
 
             for feature in template.windows_features:
                 await log(db, deployment, "post_install", f"installing Windows feature {feature}")

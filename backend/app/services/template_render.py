@@ -3,9 +3,10 @@ from pathlib import Path
 import jinja2
 
 from app.config import get_settings
-from app.models.deployment import Deployment
+from app.models.deployment import Deployment, IpMode
 from app.models.disk_layout import DiskLayout
 from app.models.template import DeploymentTemplate
+from app.winrm.client import netmask_to_prefix
 
 # Windows' Setup UI only accepts InputLocale as either a bare locale tag
 # (which picks *a* default keyboard for that locale, not necessarily the
@@ -80,4 +81,10 @@ def render_autounattend(
         disk_layout=disk_layout,
         callback_base_url=get_settings().app_public_url,
         input_locale=_resolve_input_locale(template.keyboard_layout),
+        # Only meaningful (and only computed) for a static deployment: CIDR
+        # prefix length Windows' own TCP/IP unattend component wants
+        # (UnicastIpAddresses takes "<ip>/<prefix>", not a dotted netmask).
+        static_prefix=netmask_to_prefix(deployment.static_netmask)
+        if deployment.ip_mode == IpMode.STATIC and deployment.static_netmask
+        else None,
     )
