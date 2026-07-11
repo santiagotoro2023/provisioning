@@ -500,6 +500,11 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               /norestart</Code> for an MSI, or whatever an EXE's own convention is, commonly{" "}
               <Code>/S</Code>, <Code>/silent</Code>, <Code>/verysilent</Code>, or <Code>/quiet</Code>,
               check the vendor's docs, there's no universal standard for EXEs the way MSI has one).
+              Multiple flags in one field work fine, including quoted values with spaces (e.g.{" "}
+              <Code>/S /v"/qn REBOOT=ReallySuppress"</Code>, the exact string DeployCore's own VMware Tools
+              install uses): the whole field is passed through as a single raw command-line string, never
+              split into a PowerShell array, specifically so a multi-flag string survives intact instead of
+              becoming one glued-together quoted argument.
             </P>
             <P>
               A template attaches any number of app assets in an ordered list (Templates page, the
@@ -536,8 +541,8 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
           <>
             <P>
               A disk layout is a named, reusable partitioning scheme, how the new VM's disk gets split
-              into EFI, MSR, an optional recovery partition, and the OS volume. Most organizations never
-              need more than the one created automatically during setup.
+              into EFI, MSR, an optional recovery partition, and the OS volume - plus its own optional
+              post-install scripts, for disk/partition fixups that need to run before anything else.
             </P>
           </>
         ),
@@ -549,14 +554,41 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                 "Optional recovery partition size (MB), placed between the MSR and OS partitions using the WinRE/recovery GPT partition type, if you want the standard Windows recovery environment available on the disk",
                 'OS volume: either a fixed size in MB, or "remaining disk space"',
                 "Any number of additional volumes (label, drive letter, size in MB)",
+                "Any number of post-install scripts (name + script text), the same shape a template's own post-install scripts use",
               ]}
             />
             <P>
-              The layout created automatically during setup uses EFI 100&nbsp;MB, MSR 16&nbsp;MB, a
-              1000&nbsp;MB recovery partition, and the OS volume taking whatever's left, this is rendered
-              directly into the generated <Code>autounattend.xml</Code>'s <Code>&lt;DiskConfiguration&gt;</Code> block
-              at deploy time. Layouts can be exported to a JSON file and imported again (as a new org-scoped
-              copy), handy for keeping a layout consistent across organizations or instances.
+              <strong>Setting a recovery partition size is what avoids the well-known "recovery partition
+              blocks disk expansion later" problem.</strong> Windows Setup's own default behavior (recovery
+              size left unset) is to append its own WinRE recovery partition <em>after</em> the OS volume -
+              fine until you try to expand the disk later in your hypervisor, since the recovery partition
+              sitting right after C: blocks it from ever being extended into that new space, the "disk
+              layout from hell" a lot of Windows Server 2022+ admins run into. With a recovery size set,
+              DeployCore's own <Code>&lt;DiskConfiguration&gt;</Code> declares the recovery partition{" "}
+              <em>before</em> the OS volume instead (EFI, MSR, Recovery, then OS last) - the OS volume
+              stays the last partition on disk and can always be extended, no post-install partition
+              surgery ever needed. The demo layout (<Code>scripts/seed.py</Code>) sets EFI 500&nbsp;MB, MSR
+              128&nbsp;MB, recovery 1024&nbsp;MB, OS volume remaining, for exactly this reason - worth
+              matching on any layout you expect to expand later.
+            </P>
+            <P>
+              <strong>Post-install scripts</strong> run over WinRM, same as a template's own, but as the{" "}
+              <em>very first thing</em> post-install does for a deployment using this layout - before
+              VMware Tools, before any Windows feature or app install, before the template's own
+              post-install scripts. That's deliberate: disk/partition fixups (diskpart, DISM, reagentc,
+              bcdedit) need a pristine, freshly-booted disk before anything else has a chance to touch it.
+              A failure here stops the deployment rather than continuing past it, unlike app installs -
+              partition operations are exactly the kind of step where continuing past a failure could make
+              things worse, not just skip a step.
+            </P>
+            <P>
+              This is rendered directly into the generated <Code>autounattend.xml</Code>'s{" "}
+              <Code>&lt;DiskConfiguration&gt;</Code> block at deploy time. Layouts can be exported to a
+              JSON file (post-install scripts included) and imported again (as a new org-scoped copy),
+              handy for keeping a layout consistent across organizations or instances. Create and edit
+              (including the post-install scripts editor) are available for org-scoped layouts; a global
+              layout can be created by a global admin but not edited or deleted through the UI yet, the
+              same limitation templates have.
             </P>
           </>
         ),

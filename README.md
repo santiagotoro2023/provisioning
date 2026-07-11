@@ -318,14 +318,35 @@ org-scoped copy.
   using the WinRE/recovery GPT partition type), OS volume (either a fixed
   size in MB or "remaining disk space"), an arbitrary list of additional
   volumes (label, drive letter, size in MB)
-- The layout created automatically during setup enables the recovery
-  partition (EFI 100 MB, MSR 16 MB, recovery 1000 MB, OS volume remaining)
+- **Setting a recovery partition size is what avoids the well-known
+  "recovery partition blocks disk expansion later" problem**: Windows
+  Setup's own default behavior (recovery size left unset/`null`) is to
+  append its own WinRE recovery partition *after* the OS volume, so a
+  later hypervisor-side disk expansion can't extend C: into the new
+  space, it's blocked by the recovery partition sitting right after it.
+  With a recovery size set, DeployCore's own `<DiskConfiguration>`
+  declares the recovery partition *before* the OS volume instead (EFI,
+  MSR, Recovery, then OS last) - the OS volume stays the last partition
+  on disk and can always be extended, no post-install partition surgery
+  ever needed. `scripts/seed.py`'s demo layout sets this (EFI 500 MB, MSR
+  128 MB, recovery 1024 MB, OS volume remaining) for exactly this reason
+- Optional **post-install scripts** (same `{name, script_text}` shape as a
+  template's own, run over WinRM): unlike a template's scripts, these run
+  as the very first thing `run_post_install` does, before VMware Tools,
+  before any Windows feature or app install - for disk/partition fixups
+  that need a pristine, freshly-booted disk before anything else touches
+  it. A failure here stops the deployment rather than continuing past it,
+  unlike app installs
 - Rendered directly into the generated `autounattend.xml`'s
   `<DiskConfiguration>` block
-- Create/edit (operator+) for org-scoped layouts; a separate global-create
-  endpoint exists for admins but has no dedicated UI form yet
-- Export (readonly+, downloads a JSON file) and import (operator+, uploads
-  that JSON as a new org-scoped layout), and a delete button (operator+)
+- Create/edit (operator+) for org-scoped layouts, including the
+  post-install scripts editor; a separate global-create endpoint exists
+  for admins but has no dedicated UI form yet (global layouts can be
+  created but not edited/deleted through the UI, same limitation
+  templates have)
+- Export (readonly+, downloads a JSON file, post-install scripts included)
+  and import (operator+, uploads that JSON as a new org-scoped layout),
+  and a delete button (operator+)
 
 ### ISO Assets
 - Org-scoped or global. Windows Server ISOs only, uploaded through the UI
@@ -393,7 +414,12 @@ org-scoped copy.
   and default silent-install arguments (e.g. `/qn /norestart` for an MSI,
   or whatever an EXE's own convention is, commonly `/S`/`/silent`/
   `/verysilent`/`/quiet`); a template can override the arguments per
-  attachment without touching the asset itself
+  attachment without touching the asset itself. Multiple flags in one
+  field work fine, including quoted values with spaces (e.g.
+  `/S /v"/qn REBOOT=ReallySuppress"`): `WinRMClient.install_app` passes
+  `install_args` through as a single raw command-line string, never split
+  into a PowerShell array, specifically so a multi-flag string survives
+  intact instead of becoming one glued-together quoted argument
 - Attached to a template's `app_installs` (ordered list of
   `{app_asset_id, install_args}`), installed over WinRM during
   post_install, after Windows features and before post-install scripts
@@ -959,6 +985,24 @@ deployment's log stream and "Download full log" button instead.
 - Cross-organization overview (global admins only): one row per
   organization with the same counts, click a row to switch the active
   organization
+- The checklist waits for all 4 of its own data sources to load
+  (`Promise.all`) before deciding whether to show itself: it used to
+  decide off whichever ones had already resolved, so on every page
+  load/refresh it would flash visible for an instant even for an org
+  that had already completed every step, then disappear once the rest
+  of the data caught up. Every list page across the app (Deployments,
+  Templates, ISO/App Assets, Disk Layouts, Hypervisors, Users,
+  Webhooks, Audit Log, Organizations) had the identical anti-pattern one
+  level down - an empty fetched list and a still-in-flight one look
+  identical to a plain `rows.length === 0` check, so "No results." would
+  flash before real data arrived. `DataTable` now takes a `loading` prop
+  that suppresses the empty message until the caller's fetch actually
+  resolves. The org switcher itself had the same gap even earlier in the
+  chain: every org-scoped page reads `selectedOrgId` from `OrgContext`,
+  which starts `null` until the organization list itself has loaded, so
+  "Select an organization first." would flash on load/refresh even with
+  one already selected - `OrgContext` now exposes a `loaded` flag every
+  org-scoped page's guard checks first
 
 ### Documentation
 A built-in "Documentation" tab (`frontend/src/wiki`), available to every
