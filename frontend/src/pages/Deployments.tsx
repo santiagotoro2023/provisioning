@@ -34,11 +34,14 @@ export default function Deployments() {
 
   async function load() {
     if (!selectedOrgId) return;
-    const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
-    if (stateFilter) params.set("state", stateFilter);
-    if (hostnameFilter) params.set("q", hostnameFilter);
-    setDeployments(await api.get<Deployment[]>(`/organizations/${selectedOrgId}/deployments?${params}`));
-    setLoaded(true);
+    try {
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+      if (stateFilter) params.set("state", stateFilter);
+      if (hostnameFilter) params.set("q", hostnameFilter);
+      setDeployments(await api.get<Deployment[]>(`/organizations/${selectedOrgId}/deployments?${params}`));
+    } finally {
+      setLoaded(true);
+    }
   }
 
   useEffect(() => {

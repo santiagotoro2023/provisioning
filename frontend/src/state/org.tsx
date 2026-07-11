@@ -56,7 +56,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (user) {
-      refresh().then(() => setLoaded(true));
+      refresh().finally(() => setLoaded(true));
     } else {
       setOrganizations([]);
       setSelectedOrgId(null);

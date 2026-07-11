@@ -20,8 +20,11 @@ export default function Hypervisors() {
 
   async function load() {
     if (!selectedOrgId) return;
-    setHosts(await api.get<HypervisorHost[]>(`/organizations/${selectedOrgId}/hypervisors`));
-    setLoaded(true);
+    try {
+      setHosts(await api.get<HypervisorHost[]>(`/organizations/${selectedOrgId}/hypervisors`));
+    } finally {
+      setLoaded(true);
+    }
   }
 
   async function deleteHost() {

@@ -22,8 +22,11 @@ export default function Webhooks() {
 
   async function load() {
     if (!selectedOrgId) return;
-    setWebhooks(await api.get<Webhook[]>(`/organizations/${selectedOrgId}/webhooks`));
-    setLoaded(true);
+    try {
+      setWebhooks(await api.get<Webhook[]>(`/organizations/${selectedOrgId}/webhooks`));
+    } finally {
+      setLoaded(true);
+    }
   }
 
   useEffect(() => {

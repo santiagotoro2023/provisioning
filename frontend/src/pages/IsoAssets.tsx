@@ -25,8 +25,11 @@ export default function IsoAssets() {
 
   async function load() {
     if (!selectedOrgId) return;
-    setIsos(await api.get<IsoAsset[]>(`/organizations/${selectedOrgId}/iso-assets`));
-    setLoaded(true);
+    try {
+      setIsos(await api.get<IsoAsset[]>(`/organizations/${selectedOrgId}/iso-assets`));
+    } finally {
+      setLoaded(true);
+    }
   }
 
   async function deleteIso() {

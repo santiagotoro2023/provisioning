@@ -39,17 +39,20 @@ export default function Templates() {
 
   async function load() {
     if (!selectedOrgId) return;
-    const [t, d, i, a] = await Promise.all([
-      api.get<DeploymentTemplate[]>(`/organizations/${selectedOrgId}/templates`),
-      api.get<DiskLayout[]>(`/organizations/${selectedOrgId}/disk-layouts`),
-      api.get<IsoAsset[]>(`/organizations/${selectedOrgId}/iso-assets`),
-      api.get<AppAsset[]>(`/organizations/${selectedOrgId}/app-assets`),
-    ]);
-    setTemplates(t);
-    setDiskLayouts(d);
-    setIsoAssets(i.filter((iso) => iso.kind === "windows_iso"));
-    setAppAssets(a);
-    setLoaded(true);
+    try {
+      const [t, d, i, a] = await Promise.all([
+        api.get<DeploymentTemplate[]>(`/organizations/${selectedOrgId}/templates`),
+        api.get<DiskLayout[]>(`/organizations/${selectedOrgId}/disk-layouts`),
+        api.get<IsoAsset[]>(`/organizations/${selectedOrgId}/iso-assets`),
+        api.get<AppAsset[]>(`/organizations/${selectedOrgId}/app-assets`),
+      ]);
+      setTemplates(t);
+      setDiskLayouts(d);
+      setIsoAssets(i.filter((iso) => iso.kind === "windows_iso"));
+      setAppAssets(a);
+    } finally {
+      setLoaded(true);
+    }
   }
 
   useEffect(() => {

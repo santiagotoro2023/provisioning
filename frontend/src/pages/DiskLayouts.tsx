@@ -29,8 +29,11 @@ export default function DiskLayouts() {
 
   async function load() {
     if (!selectedOrgId) return;
-    setLayouts(await api.get<DiskLayout[]>(`/organizations/${selectedOrgId}/disk-layouts`));
-    setLoaded(true);
+    try {
+      setLayouts(await api.get<DiskLayout[]>(`/organizations/${selectedOrgId}/disk-layouts`));
+    } finally {
+      setLoaded(true);
+    }
   }
 
   useEffect(() => {

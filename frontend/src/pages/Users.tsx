@@ -26,8 +26,11 @@ export default function Users() {
 
   async function load() {
     if (!isGlobalAdmin) return;
-    setUsers(await api.get<User[]>("/users"));
-    setLoaded(true);
+    try {
+      setUsers(await api.get<User[]>("/users"));
+    } finally {
+      setLoaded(true);
+    }
   }
 
   useEffect(() => {

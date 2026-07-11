@@ -28,10 +28,8 @@ export default function AuditLog() {
     if (!selectedOrgId) return;
     api
       .get<AuditLogEntry[]>(`/organizations/${selectedOrgId}/audit-log?limit=${PAGE_SIZE}&offset=${offset}`)
-      .then((rows) => {
-        setEntries(rows);
-        setLoaded(true);
-      });
+      .then(setEntries)
+      .finally(() => setLoaded(true));
   }, [selectedOrgId, offset]);
 
   if (!orgLoaded) return null;

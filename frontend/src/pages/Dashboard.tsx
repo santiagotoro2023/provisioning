@@ -86,10 +86,7 @@ function MspOverview() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    api.get<OrgOverview[]>("/dashboard/overview").then((r) => {
-      setRows(r);
-      setLoaded(true);
-    });
+    api.get<OrgOverview[]>("/dashboard/overview").then(setRows).finally(() => setLoaded(true));
   }, []);
 
   return (
@@ -150,7 +147,7 @@ function OrgDashboard({ orgId }: { orgId: string }) {
       api.get<HypervisorHost[]>(`/organizations/${orgId}/hypervisors`).then(setHosts),
       api.get<IsoAsset[]>(`/organizations/${orgId}/iso-assets`).then(setIsoAssets),
       api.get<DeploymentTemplate[]>(`/organizations/${orgId}/templates`).then(setTemplates),
-    ]).then(() => setLoaded(true));
+    ]).finally(() => setLoaded(true));
   }, [orgId]);
 
   const running = deployments.filter((d) => RUNNING_STATES.has(d.state)).length;

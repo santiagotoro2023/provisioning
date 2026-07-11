@@ -25,8 +25,11 @@ export default function AppAssets() {
 
   async function load() {
     if (!selectedOrgId) return;
-    setApps(await api.get<AppAsset[]>(`/organizations/${selectedOrgId}/app-assets`));
-    setLoaded(true);
+    try {
+      setApps(await api.get<AppAsset[]>(`/organizations/${selectedOrgId}/app-assets`));
+    } finally {
+      setLoaded(true);
+    }
   }
 
   async function deleteApp() {
