@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { api, ApiError, getToken } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog";
 import FileDropzone from "../components/FileDropzone";
@@ -12,29 +12,101 @@ interface SettingRow {
   value: unknown;
 }
 
+interface SettingsCardDef {
+  id: string;
+  title: string;
+  description: string;
+}
+
+const INSTANCE_SETTINGS: SettingsCardDef[] = [
+  { id: "msp", title: "MSP Organization", description: "Instance name and logo, shown in the sidebar and sign-in screen." },
+  { id: "updates", title: "Updates", description: "Check for and apply DeployCore updates." },
+  { id: "backups", title: "Database backups", description: "Manual and scheduled backups of the whole database." },
+  { id: "m365", title: "Email notifications", description: "Deployment emails sent through your Microsoft 365 tenant." },
+  { id: "teams", title: "Teams notifications", description: "Deployment notifications sent directly to users in Teams." },
+  { id: "notification-content", title: "Notification content", description: "Customize the subject/body/message sent for each event." },
+  { id: "tls", title: "HTTPS certificate", description: "Self-signed by default, or upload your own trusted certificate." },
+];
+
+function SettingsCard({ title, description, onOpen }: { title: string; description: string; onOpen: () => void }) {
+  return (
+    <div className="flex flex-col justify-between rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900">
+      <div>
+        <h3 className="mb-1 text-sm font-semibold">{title}</h3>
+        <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">{description}</p>
+      </div>
+      <button
+        type="button"
+        className="self-start rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
+        onClick={onOpen}
+      >
+        Configure
+      </button>
+    </div>
+  );
+}
+
+function SettingsModal({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 py-10">
+      <div className="w-full max-w-lg space-y-4 px-4">
+        {children}
+        <button
+          type="button"
+          className="w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+          onClick={onClose}
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { user } = useAuth();
+  const { selectedOrgId } = useOrg();
   const isGlobalAdmin = !!user && roleAtLeast(user.global_role, "admin");
+  const [activeModal, setActiveModal] = useState<string | null>(null);
 
   return (
     <div className="space-y-8">
       <h1 className="text-lg font-semibold">Settings</h1>
       {isGlobalAdmin && (
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
-          <div className="flex-1 space-y-4">
-            <MspOrganizationPanel />
-            <UpdatesPanel />
-            <BackupsPanel />
-          </div>
-          <div className="flex-1 space-y-4">
-            <M365Panel />
-            <TeamsPanel />
-            <NotificationTemplatesPanel />
-            <TlsPanel />
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">Instance settings</h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {INSTANCE_SETTINGS.map((item) => (
+              <SettingsCard key={item.id} title={item.title} description={item.description} onOpen={() => setActiveModal(item.id)} />
+            ))}
           </div>
         </div>
       )}
-      <OrgSettingsPanel />
+      {selectedOrgId && (
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">Organization settings</h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <SettingsCard
+              title="Deployment settings"
+              description="Deployment timeout and advanced per-organization overrides."
+              onOpen={() => setActiveModal("org")}
+            />
+          </div>
+        </div>
+      )}
+
+      {activeModal && (
+        <SettingsModal onClose={() => setActiveModal(null)}>
+          {activeModal === "msp" && <MspOrganizationPanel />}
+          {activeModal === "updates" && <UpdatesPanel />}
+          {activeModal === "backups" && <BackupsPanel />}
+          {activeModal === "m365" && <M365Panel />}
+          {activeModal === "teams" && <TeamsPanel />}
+          {activeModal === "notification-content" && <NotificationTemplatesPanel />}
+          {activeModal === "tls" && <TlsPanel />}
+          {activeModal === "org" && <OrgSettingsPanel />}
+        </SettingsModal>
+      )}
     </div>
   );
 }
