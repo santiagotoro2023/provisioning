@@ -1,8 +1,15 @@
 import ipaddress
+import json
 
 import winrm
 
 PS_HEADER = "$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'; "
+
+# Delimits the machine-readable summary line install_feature appends
+# after Install-WindowsFeature's own human-readable table output (which
+# still gets shown to the operator as-is): distinct enough that nothing
+# Windows itself would ever write to stdout could collide with it.
+_FEATURE_RESULT_MARKER = "###DEPLOYCORE_FEATURE_RESULT###"
 
 
 class WinRMResult:
@@ -14,6 +21,12 @@ class WinRMResult:
     @property
     def ok(self) -> bool:
         return self.status_code == 0
+
+
+class FeatureInstallResult(WinRMResult):
+    def __init__(self, status_code: int, stdout: str, stderr: str, restart_needed: bool) -> None:
+        super().__init__(status_code, stdout, stderr)
+        self.restart_needed = restart_needed
 
 
 def netmask_to_prefix(netmask: str) -> int:
@@ -42,8 +55,60 @@ class WinRMClient:
             result.std_err.decode(errors="replace"),
         )
 
-    def install_feature(self, feature_name: str) -> WinRMResult:
-        return self.run_ps(f"Install-WindowsFeature -Name {feature_name}")
+    def install_feature(self, feature_name: str) -> FeatureInstallResult:
+        """Install-WindowsFeature's own table output is still shown to the
+        operator as-is (via the log line built from .stdout), but whether
+        it actually succeeded and whether it needs a restart to finish
+        weren't previously checked at all - $r.Success not being true
+        doesn't necessarily raise a terminating error on its own, so a
+        failed-but-non-throwing install could previously report .ok=True.
+        Appends a machine-readable marker line after the human table
+        (ConvertTo-Json -Compress, parsed back out below) to get both
+        Success and RestartNeeded reliably, and explicitly fails the
+        command (non-zero exit) when Success is false rather than relying
+        on Install-WindowsFeature to raise on its own."""
+        name = _ps_single_quote(feature_name)
+        script = f"""
+$r = Install-WindowsFeature -Name {name}
+$r
+$summary = [PSCustomObject]@{{ Success = $r.Success; RestartNeeded = [string]$r.RestartNeeded }} | ConvertTo-Json -Compress
+Write-Output "{_FEATURE_RESULT_MARKER}$summary"
+if (-not $r.Success) {{ exit 1 }}
+""".strip()
+        result = self.run_ps(script)
+        display_stdout = result.stdout
+        restart_needed = False
+        if _FEATURE_RESULT_MARKER in result.stdout:
+            display_stdout, _, marker_line = result.stdout.partition(_FEATURE_RESULT_MARKER)
+            try:
+                payload = json.loads(marker_line.strip())
+                restart_needed = str(payload.get("RestartNeeded", "No")).strip().lower() in ("yes", "maybe")
+            except (ValueError, AttributeError):
+                pass  # Same effect as RestartNeeded genuinely being "No": nothing to act on either way
+        return FeatureInstallResult(result.status_code, display_stdout.strip(), result.stderr, restart_needed)
+
+    def verify_windows_features_installed(self, feature_names: list[str]) -> WinRMResult:
+        """Explicit confirmation pass, run once after every requested
+        feature's own Install-WindowsFeature call already reported
+        success: catches the case (rare, but exactly why this exists)
+        where a feature reports success but a later change - another
+        feature's install, a restart pending from one of them - leaves
+        it not actually in an Installed state by the time everything
+        else in post_install is about to start depending on it."""
+        names_literal = ",".join(_ps_single_quote(name) for name in feature_names)
+        missing_check = (
+            "-not (Get-WindowsFeature -Name $_ -ErrorAction SilentlyContinue).Installed"
+        )
+        script = f"""
+$names = @({names_literal})
+$missing = $names | Where-Object {{ {missing_check} }}
+if ($missing) {{
+    throw "not installed: $($missing -join ', ')"
+}} else {{
+    Write-Output 'all requested features verified installed'
+}}
+""".strip()
+        return self.run_ps(script)
 
     def join_domain(
         self, domain_fqdn: str, username: str, password: str, ou: str | None = None

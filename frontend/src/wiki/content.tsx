@@ -750,15 +750,22 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   genuine last resort the hypervisor's own guest-IP lookup, which needs VMware Tools
                   installed in the guest to report anything at all and was the actual cause, confirmed
                   live, of a real deployment spinning for a full ten minutes despite Setup and the
-                  callback having both already succeeded: install each selected Windows role, install
-                  each attached app asset in order (see "App assets"), run post-install scripts in order,
-                  join the domain here if configured for that timing, reboot, verify it comes back
-                  reachable, then mark the deployment completed. Each of those steps — feature installs,
-                  app installs, scripts, the domain join — logs a "still running" heartbeat every 30
-                  seconds while it hasn't finished yet, rather than the deployment log going silent for
-                  however long that guest-side command actually takes: a real Windows role install can
-                  legitimately run several minutes, and without this a genuinely-still-working deployment
-                  looked indistinguishable from a stuck one.</>,
+                  callback having both already succeeded: install each selected Windows role, checking the
+                  structured <Code>Success</Code>/<Code>RestartNeeded</Code> fields{" "}
+                  <Code>Install-WindowsFeature</Code> itself returns rather than just whether the command
+                  ran without throwing (not the same thing — a feature can report{" "}
+                  <Code>Success=False</Code> without ever raising a terminating error), then run one
+                  explicit <Code>Get-WindowsFeature</Code> verification pass across every requested
+                  feature once they've all reported success, and reboot once — not per feature — if any
+                  of them asked for a restart, before moving on. Then install each attached app asset in
+                  order (see "App assets"), run post-install scripts in order, join the domain here if
+                  configured for that timing, reboot, verify it comes back reachable, then mark the
+                  deployment completed. Each of those steps — feature installs, app installs, scripts, the
+                  domain join — logs a "still running" heartbeat every 30 seconds while it hasn't finished
+                  yet, rather than the deployment log going silent for however long that guest-side
+                  command actually takes: a real Windows role install can legitimately run several
+                  minutes, and without this a genuinely-still-working deployment looked indistinguishable
+                  from a stuck one.</>,
                 <>A stuck deployment (past its configured timeout, default 90 minutes, editable per
                   organization in Settings) is force-failed automatically by a background job, and cleaned
                   up the same way a real failure would be. This is independent of, and a genuine safety

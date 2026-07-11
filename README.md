@@ -698,19 +698,31 @@ pending → creating_vm → booting → installing_os → post_install → confi
   `WINRM_REACHABILITY_MAX_ATTEMPTS` despite Setup and the callback having
   both already succeeded; authenticating as `template.local_admin_username`,
   not the now-disabled built-in Administrator): install each configured
-  Windows feature, install each configured app asset in order
-  (the guest downloads each installer itself over `Invoke-WebRequest`, see
-  the App Assets section above for the token/download flow, then runs it
-  silently and deletes it), run each post-install script in order, join
-  the domain here if configured for `post_install` timing, reboot, verify
-  the guest comes back reachable. Every one of those (feature installs, app
-  installs, scripts, the domain join) runs through `_run_with_heartbeat`,
-  not a bare blocking WinRM call: a real Windows role install can
-  legitimately take several minutes, and without a periodic "still
-  running (Ns elapsed)" log line the deployment log otherwise goes
-  completely silent for however long that takes, indistinguishable from a
-  hang - confirmed as a real point of confusion on an otherwise-successful
-  deployment. Then, as the very last WinRM action before
+  Windows feature (`WinRMClient.install_feature`, which now checks the
+  structured `Success`/`RestartNeeded` fields `Install-WindowsFeature`
+  itself returns, not just whether the command ran without throwing -
+  those aren't the same thing, a feature can report `Success=False`
+  without ever raising a terminating error at all), then, once every
+  requested feature's own install has reported success,
+  `verify_windows_features_installed` runs one explicit `Get-WindowsFeature`
+  confirmation pass across all of them before anything else proceeds, and
+  if any feature reported needing a restart to finish, one reboot happens
+  right here (not per-feature: rebooting between every feature would mean
+  reconnecting over WinRM that many more times for no benefit) before
+  continuing to app installs. Then install each configured app asset in
+  order (the guest downloads each installer itself over
+  `Invoke-WebRequest`, see the App Assets section above for the
+  token/download flow, then runs it silently and deletes it), run each
+  post-install script in order, join the domain here if configured for
+  `post_install` timing, reboot, verify the guest comes back reachable.
+  Every one of those (feature installs, app installs, scripts, the
+  domain join) runs through `_run_with_heartbeat`, not a bare blocking
+  WinRM call: a real Windows role install can legitimately take several
+  minutes, and without a periodic "still running (Ns elapsed)" log line
+  the deployment log otherwise goes completely silent for however long
+  that takes, indistinguishable from a hang - confirmed as a real point
+  of confusion on an otherwise-successful deployment. Then, as the very
+  last WinRM action before
   marking `completed`: remove the WinRM firewall rule, `Disable-PSRemoting`,
   and stop+disable the WinRM service itself (the service stop runs in a
   detached process a few seconds later, not inline, so the command reporting

@@ -395,6 +395,26 @@ async def _run_with_heartbeat(db, deployment: Deployment, stage: str, descriptio
     return await task
 
 
+async def _reboot_and_wait(client: WinRMClient, failure_message: str) -> None:
+    """Fire-and-forget the restart (the guest tearing down the WinRM
+    connection mid-command is expected, not an error) then wait for it to
+    come back, using the same bounded reachability check as everywhere
+    else. Shared by the post-feature-install reboot (only when at least
+    one installed feature actually reported RestartNeeded) and the
+    original end-of-post_install reboot, previously duplicated inline."""
+    try:
+        client.reboot()
+    except Exception:  # noqa: BLE001 - expected: the guest tearing down the WinRM connection mid-reboot
+        pass
+    await asyncio.sleep(WINRM_REACHABILITY_POLL_INTERVAL_SECONDS)
+    for _ in range(WINRM_REACHABILITY_MAX_ATTEMPTS):
+        if await _winrm_reachable(client):
+            break
+        await asyncio.sleep(WINRM_REACHABILITY_POLL_INTERVAL_SECONDS)
+    else:
+        raise RuntimeError(failure_message)
+
+
 async def _guest_reachable_over_winrm(
     driver: HypervisorDriver, template: DeploymentTemplate, deployment: Deployment
 ) -> bool:
@@ -552,6 +572,11 @@ async def run_post_install(ctx, deployment_id: str) -> None:
 
             await _state_machine.transition(db, deployment, DeploymentState.POST_INSTALL)
 
+            # RestartNeeded is tracked across the whole loop, not acted on
+            # per-feature: rebooting between features would mean
+            # reconnecting over WinRM multiple times for no benefit, one
+            # reboot at the end covers every feature that asked for one.
+            features_need_restart = False
             for feature in template.windows_features:
                 await log(db, deployment, "post_install", f"installing Windows feature {feature}")
                 result = await _run_with_heartbeat(
@@ -567,6 +592,24 @@ async def run_post_install(ctx, deployment_id: str) -> None:
                 )
                 if not result.ok:
                     raise RuntimeError(f"Install-WindowsFeature {feature} failed: {result.stderr}")
+                if result.restart_needed:
+                    features_need_restart = True
+
+            if template.windows_features:
+                await log(db, deployment, "post_install", "verifying installed Windows features")
+                verify_result = await _run_with_heartbeat(
+                    db, deployment, "post_install", "verifying installed Windows features",
+                    lambda: client.verify_windows_features_installed(template.windows_features),
+                )
+                if not verify_result.ok:
+                    raise RuntimeError(f"feature verification failed: {verify_result.stderr}")
+
+            if features_need_restart:
+                await log(
+                    db, deployment, "post_install",
+                    "a feature install requires a restart, rebooting before continuing",
+                )
+                await _reboot_and_wait(client, "guest did not come back reachable after the feature-install reboot")
 
             if template.app_installs:
                 # Short-lived, cleared right after this block: authenticates
@@ -641,17 +684,7 @@ async def run_post_install(ctx, deployment_id: str) -> None:
                     raise RuntimeError(f"domain join failed: {result.stderr}")
 
             await log(db, deployment, "configuring", "rebooting to finalize configuration")
-            try:
-                client.reboot()
-            except Exception:  # noqa: BLE001 - the guest tearing down the WinRM connection mid-reboot is expected
-                pass
-            await asyncio.sleep(WINRM_REACHABILITY_POLL_INTERVAL_SECONDS)
-            for _ in range(WINRM_REACHABILITY_MAX_ATTEMPTS):
-                if await _winrm_reachable(client):
-                    break
-                await asyncio.sleep(WINRM_REACHABILITY_POLL_INTERVAL_SECONDS)
-            else:
-                raise RuntimeError("guest did not come back reachable after the post-install reboot")
+            await _reboot_and_wait(client, "guest did not come back reachable after the post-install reboot")
 
             await log(db, deployment, "configuring", "closing WinRM access, post-install is finished")
             try:
