@@ -638,7 +638,16 @@ async def run_post_install(ctx, deployment_id: str) -> None:
                     f"installing Windows features: {', '.join(template.windows_features)}",
                 )
                 def _feature_progress() -> str:
-                    status = client.get_feature_install_status(template.windows_features)
+                    # A second, independent WinRMClient/session, not the
+                    # shared `client` install_features is using: NTLM
+                    # message signing keeps per-session sequence counters,
+                    # and two concurrent requests over the same session
+                    # (this progress poll racing the in-flight install)
+                    # corrupts them - confirmed live as BadMICError
+                    # ("Invalid Message Integrity Check") crashing the
+                    # whole install the first time this ran.
+                    progress_client = WinRMClient(guest_ip, template.local_admin_username, template.local_admin_password)
+                    status = progress_client.get_feature_install_status(template.windows_features)
                     done = [name for name in template.windows_features if status.get(name)]
                     return f"{len(done)}/{len(template.windows_features)} installed so far: {', '.join(done)}" if done else ""
 
