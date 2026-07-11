@@ -9,9 +9,10 @@ import { useAuth, roleAtLeast } from "../state/auth";
 import { useOrg } from "../state/org";
 
 export default function Webhooks() {
-  const { selectedOrgId } = useOrg();
+  const { selectedOrgId, loaded: orgLoaded } = useOrg();
   const { effectiveRole } = useAuth();
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
@@ -22,6 +23,7 @@ export default function Webhooks() {
   async function load() {
     if (!selectedOrgId) return;
     setWebhooks(await api.get<Webhook[]>(`/organizations/${selectedOrgId}/webhooks`));
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -29,6 +31,7 @@ export default function Webhooks() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrgId]);
 
+  if (!orgLoaded) return null;
   if (!selectedOrgId) return <p className="text-sm text-neutral-500">Select an organization first.</p>;
   const canManage = roleAtLeast(effectiveRole(selectedOrgId), "admin");
 
@@ -86,6 +89,7 @@ export default function Webhooks() {
 
       <DataTable<Webhook>
         rows={webhooks}
+        loading={!loaded}
         rowKey={(w) => w.id}
         searchValue={(w) => w.name}
         columns={[

@@ -31,7 +31,7 @@ function computerNameError(value: string, label: string, maxLength: number): str
 }
 
 export default function DeploymentWizard() {
-  const { selectedOrgId } = useOrg();
+  const { selectedOrgId, loaded: orgLoaded } = useOrg();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([]);
@@ -58,6 +58,7 @@ export default function DeploymentWizard() {
     api.get<HypervisorHost[]>(`/organizations/${selectedOrgId}/hypervisors`).then(setHosts);
   }, [selectedOrgId]);
 
+  if (!orgLoaded) return null;
   if (!selectedOrgId) return <p className="text-sm text-neutral-500">Select an organization first.</p>;
 
   const hostnameError = bulk

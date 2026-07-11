@@ -13,9 +13,10 @@ import { useOrg } from "../state/org";
 const CHUNK_SIZE = 8 * 1024 * 1024;
 
 export default function AppAssets() {
-  const { selectedOrgId, selectedOrg } = useOrg();
+  const { selectedOrgId, selectedOrg, loaded: orgLoaded } = useOrg();
   const { user, effectiveRole } = useAuth();
   const [apps, setApps] = useState<AppAsset[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<AppAsset | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -25,6 +26,7 @@ export default function AppAssets() {
   async function load() {
     if (!selectedOrgId) return;
     setApps(await api.get<AppAsset[]>(`/organizations/${selectedOrgId}/app-assets`));
+    setLoaded(true);
   }
 
   async function deleteApp() {
@@ -48,6 +50,7 @@ export default function AppAssets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrgId]);
 
+  if (!orgLoaded) return null;
   if (!selectedOrgId) return <p className="text-sm text-neutral-500">Select an organization first.</p>;
   const canManage = roleAtLeast(effectiveRole(selectedOrgId), "operator");
 
@@ -73,6 +76,7 @@ export default function AppAssets() {
 
       <DataTable<AppAsset>
         rows={apps}
+        loading={!loaded}
         rowKey={(a) => a.id}
         searchValue={(a) => `${a.name} ${a.filename}`}
         columns={[

@@ -9,6 +9,13 @@ interface OrgState {
   selectedOrg: Organization | null;
   selectOrg: (id: string) => void;
   refresh: () => Promise<void>;
+  /** False until the first `refresh()` (or the logged-out reset) has
+   * resolved. Every consumer that renders an empty/no-selection state
+   * off `organizations`/`selectedOrgId` should wait for this first -
+   * otherwise every org-scoped page briefly renders "Select an
+   * organization first." on load/refresh, even when one's already
+   * selected, before flipping to the real content a moment later. */
+  loaded: boolean;
 }
 
 const OrgContext = createContext<OrgState | null>(null);
@@ -19,6 +26,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   function storageKey(): string | null {
     return user ? `${SELECTED_ORG_KEY_PREFIX}${user.id}` : null;
@@ -48,10 +56,11 @@ export function OrgProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (user) {
-      refresh();
+      refresh().then(() => setLoaded(true));
     } else {
       setOrganizations([]);
       setSelectedOrgId(null);
+      setLoaded(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
@@ -65,7 +74,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
   const selectedOrg = organizations.find((o) => o.id === selectedOrgId) ?? null;
 
   return (
-    <OrgContext.Provider value={{ organizations, selectedOrgId, selectedOrg, selectOrg, refresh }}>
+    <OrgContext.Provider value={{ organizations, selectedOrgId, selectedOrg, selectOrg, refresh, loaded }}>
       {children}
     </OrgContext.Provider>
   );

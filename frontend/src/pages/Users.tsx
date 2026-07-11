@@ -14,6 +14,7 @@ export default function Users() {
   const { user: currentUser } = useAuth();
   const { organizations } = useOrg();
   const [users, setUsers] = useState<User[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
   const [confirmLogout, setConfirmLogout] = useState<User | null>(null);
@@ -26,6 +27,7 @@ export default function Users() {
   async function load() {
     if (!isGlobalAdmin) return;
     setUsers(await api.get<User[]>("/users"));
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -106,6 +108,7 @@ export default function Users() {
 
       <DataTable<User>
         rows={users}
+        loading={!loaded}
         rowKey={(u) => u.id}
         searchValue={(u) => u.username}
         columns={[

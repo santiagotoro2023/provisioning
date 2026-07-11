@@ -46,7 +46,7 @@ const NAV_ITEMS = [
 
 export default function Layout() {
   const { user, logout } = useAuth();
-  const { organizations, selectedOrgId, selectOrg } = useOrg();
+  const { organizations, selectedOrgId, selectOrg, loaded: orgLoaded } = useOrg();
   const { name: instanceName, hasLogo } = useInstanceInfo();
   const { theme, toggle } = useTheme();
 
@@ -71,7 +71,7 @@ export default function Layout() {
             value={selectedOrgId ?? ""}
             onChange={(e) => selectOrg(e.target.value)}
           >
-            {organizations.length === 0 && <option value="">No organizations</option>}
+            {organizations.length === 0 && <option value="">{orgLoaded ? "No organizations" : "Loading..."}</option>}
             {organizations.map((org) => (
               <option key={org.id} value={org.id}>
                 {org.name}

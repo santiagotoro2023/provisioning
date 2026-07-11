@@ -16,9 +16,10 @@ interface ExtraVolumeForm {
 }
 
 export default function DiskLayouts() {
-  const { selectedOrgId } = useOrg();
+  const { selectedOrgId, loaded: orgLoaded } = useOrg();
   const { effectiveRole } = useAuth();
   const [layouts, setLayouts] = useState<DiskLayout[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<DiskLayout | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -28,6 +29,7 @@ export default function DiskLayouts() {
   async function load() {
     if (!selectedOrgId) return;
     setLayouts(await api.get<DiskLayout[]>(`/organizations/${selectedOrgId}/disk-layouts`));
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -35,6 +37,7 @@ export default function DiskLayouts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrgId]);
 
+  if (!orgLoaded) return null;
   if (!selectedOrgId) return <p className="text-sm text-neutral-500">Select an organization first.</p>;
   const canManage = roleAtLeast(effectiveRole(selectedOrgId), "operator");
 
@@ -96,6 +99,7 @@ export default function DiskLayouts() {
 
       <DataTable<DiskLayout>
         rows={layouts}
+        loading={!loaded}
         rowKey={(l) => l.id}
         searchValue={(l) => l.name}
         columns={[

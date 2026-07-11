@@ -24,9 +24,10 @@ const STATE_OPTIONS: DeploymentState[] = [
 ];
 
 export default function Deployments() {
-  const { selectedOrgId } = useOrg();
+  const { selectedOrgId, loaded: orgLoaded } = useOrg();
   const { effectiveRole } = useAuth();
   const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [stateFilter, setStateFilter] = useState<DeploymentState | "">("");
   const [hostnameFilter, setHostnameFilter] = useState("");
   const [offset, setOffset] = useState(0);
@@ -37,6 +38,7 @@ export default function Deployments() {
     if (stateFilter) params.set("state", stateFilter);
     if (hostnameFilter) params.set("q", hostnameFilter);
     setDeployments(await api.get<Deployment[]>(`/organizations/${selectedOrgId}/deployments?${params}`));
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -50,6 +52,7 @@ export default function Deployments() {
 
   const canDeploy = roleAtLeast(effectiveRole(selectedOrgId), "operator");
 
+  if (!orgLoaded) return null;
   if (!selectedOrgId) return <p className="text-sm text-neutral-500">Select an organization first.</p>;
 
   async function exportCsv() {
@@ -117,6 +120,7 @@ export default function Deployments() {
 
       <DataTable<Deployment>
         rows={deployments}
+        loading={!loaded}
         rowKey={(d) => d.id}
         columns={[
           {

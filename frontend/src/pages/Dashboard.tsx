@@ -22,7 +22,7 @@ interface OrgOverview {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { organizations, selectedOrgId } = useOrg();
+  const { organizations, selectedOrgId, loaded: orgLoaded } = useOrg();
   const isGlobalAdmin = !!user && roleAtLeast(user.global_role, "admin");
 
   return (
@@ -30,7 +30,7 @@ export default function Dashboard() {
       <AmbientBackground subtle />
       <div className="relative space-y-8">
         <h1 className="text-lg font-semibold">Dashboard</h1>
-        {organizations.length === 0 ? (
+        {!orgLoaded ? null : organizations.length === 0 ? (
           <NoOrganizationsCard canCreate={isGlobalAdmin} />
         ) : (
           <>
@@ -83,9 +83,13 @@ function NoOrganizationsCard({ canCreate }: { canCreate: boolean }) {
 function MspOverview() {
   const { selectOrg } = useOrg();
   const [rows, setRows] = useState<OrgOverview[]>([]);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    api.get<OrgOverview[]>("/dashboard/overview").then(setRows);
+    api.get<OrgOverview[]>("/dashboard/overview").then((r) => {
+      setRows(r);
+      setLoaded(true);
+    });
   }, []);
 
   return (
@@ -106,7 +110,7 @@ function MspOverview() {
             {rows.length === 0 && (
               <tr>
                 <td className="px-4 py-6 text-center text-neutral-400" colSpan={5}>
-                  No organizations yet.
+                  {loaded ? "No organizations yet." : "Loading..."}
                 </td>
               </tr>
             )}
@@ -137,12 +141,16 @@ function OrgDashboard({ orgId }: { orgId: string }) {
   const [hosts, setHosts] = useState<HypervisorHost[]>([]);
   const [isoAssets, setIsoAssets] = useState<IsoAsset[]>([]);
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([]);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    api.get<Deployment[]>(`/organizations/${orgId}/deployments`).then(setDeployments);
-    api.get<HypervisorHost[]>(`/organizations/${orgId}/hypervisors`).then(setHosts);
-    api.get<IsoAsset[]>(`/organizations/${orgId}/iso-assets`).then(setIsoAssets);
-    api.get<DeploymentTemplate[]>(`/organizations/${orgId}/templates`).then(setTemplates);
+    setLoaded(false);
+    Promise.all([
+      api.get<Deployment[]>(`/organizations/${orgId}/deployments`).then(setDeployments),
+      api.get<HypervisorHost[]>(`/organizations/${orgId}/hypervisors`).then(setHosts),
+      api.get<IsoAsset[]>(`/organizations/${orgId}/iso-assets`).then(setIsoAssets),
+      api.get<DeploymentTemplate[]>(`/organizations/${orgId}/templates`).then(setTemplates),
+    ]).then(() => setLoaded(true));
   }, [orgId]);
 
   const running = deployments.filter((d) => RUNNING_STATES.has(d.state)).length;
@@ -156,7 +164,7 @@ function OrgDashboard({ orgId }: { orgId: string }) {
 
   return (
     <div className="space-y-8">
-      {!(hasHypervisor && hasWindowsIso && hasTemplate) && (
+      {loaded && !(hasHypervisor && hasWindowsIso && hasTemplate) && (
         <GettingStartedCard hasHypervisor={hasHypervisor} hasWindowsIso={hasWindowsIso} hasTemplate={hasTemplate} />
       )}
 

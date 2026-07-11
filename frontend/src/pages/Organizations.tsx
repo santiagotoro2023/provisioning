@@ -10,7 +10,7 @@ import { useOrg } from "../state/org";
 
 export default function Organizations() {
   const { user } = useAuth();
-  const { organizations, refresh } = useOrg();
+  const { organizations, refresh, loaded } = useOrg();
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<Organization | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -46,6 +46,7 @@ export default function Organizations() {
 
       <DataTable<Organization>
         rows={organizations}
+        loading={!loaded}
         rowKey={(o) => o.id}
         searchValue={(o) => o.name}
         columns={[

@@ -21,6 +21,10 @@ interface DataTableProps<T> {
   searchValue?: (row: T) => string;
   emptyMessage?: string;
   pageSize?: number;
+  /** True while the first fetch for `rows` is still in flight: suppresses
+   * `emptyMessage` so a page doesn't flash "No results." for the instant
+   * before real data (or a genuinely empty list) arrives. */
+  loading?: boolean;
 }
 
 export default function DataTable<T>({
@@ -31,6 +35,7 @@ export default function DataTable<T>({
   searchValue,
   emptyMessage = "No results.",
   pageSize = 10,
+  loading = false,
 }: DataTableProps<T>) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -117,7 +122,7 @@ export default function DataTable<T>({
             {pageRows.length === 0 && (
               <tr>
                 <td className="px-4 py-6 text-center text-neutral-400" colSpan={columns.length}>
-                  {emptyMessage}
+                  {loading ? "Loading..." : emptyMessage}
                 </td>
               </tr>
             )}

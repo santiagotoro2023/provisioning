@@ -13,9 +13,10 @@ import { useOrg } from "../state/org";
 const CHUNK_SIZE = 8 * 1024 * 1024;
 
 export default function IsoAssets() {
-  const { selectedOrgId, selectedOrg } = useOrg();
+  const { selectedOrgId, selectedOrg, loaded: orgLoaded } = useOrg();
   const { user, effectiveRole } = useAuth();
   const [isos, setIsos] = useState<IsoAsset[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<IsoAsset | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -25,6 +26,7 @@ export default function IsoAssets() {
   async function load() {
     if (!selectedOrgId) return;
     setIsos(await api.get<IsoAsset[]>(`/organizations/${selectedOrgId}/iso-assets`));
+    setLoaded(true);
   }
 
   async function deleteIso() {
@@ -48,6 +50,7 @@ export default function IsoAssets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrgId]);
 
+  if (!orgLoaded) return null;
   if (!selectedOrgId) return <p className="text-sm text-neutral-500">Select an organization first.</p>;
   const canManage = roleAtLeast(effectiveRole(selectedOrgId), "operator");
 
@@ -68,6 +71,7 @@ export default function IsoAssets() {
 
       <DataTable<IsoAsset>
         rows={isos}
+        loading={!loaded}
         rowKey={(i) => i.id}
         searchValue={(i) => i.filename}
         columns={[

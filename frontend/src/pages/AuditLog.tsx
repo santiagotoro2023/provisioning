@@ -19,17 +19,22 @@ interface AuditLogEntry {
 }
 
 export default function AuditLog() {
-  const { selectedOrgId } = useOrg();
+  const { selectedOrgId, loaded: orgLoaded } = useOrg();
   const [entries, setEntries] = useState<AuditLogEntry[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [offset, setOffset] = useState(0);
 
   useEffect(() => {
     if (!selectedOrgId) return;
     api
       .get<AuditLogEntry[]>(`/organizations/${selectedOrgId}/audit-log?limit=${PAGE_SIZE}&offset=${offset}`)
-      .then(setEntries);
+      .then((rows) => {
+        setEntries(rows);
+        setLoaded(true);
+      });
   }, [selectedOrgId, offset]);
 
+  if (!orgLoaded) return null;
   if (!selectedOrgId) return <p className="text-sm text-neutral-500">Select an organization first.</p>;
 
   async function exportCsv() {
@@ -61,6 +66,7 @@ export default function AuditLog() {
       </div>
       <DataTable<AuditLogEntry>
         rows={entries}
+        loading={!loaded}
         rowKey={(e) => e.id}
         searchValue={(e) => e.action}
         columns={[

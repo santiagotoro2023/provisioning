@@ -10,9 +10,10 @@ import { useAuth, roleAtLeast } from "../state/auth";
 import { useOrg } from "../state/org";
 
 export default function Hypervisors() {
-  const { selectedOrgId } = useOrg();
+  const { selectedOrgId, loaded: orgLoaded } = useOrg();
   const { effectiveRole } = useAuth();
   const [hosts, setHosts] = useState<HypervisorHost[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<HypervisorHost | null>(null);
@@ -20,6 +21,7 @@ export default function Hypervisors() {
   async function load() {
     if (!selectedOrgId) return;
     setHosts(await api.get<HypervisorHost[]>(`/organizations/${selectedOrgId}/hypervisors`));
+    setLoaded(true);
   }
 
   async function deleteHost() {
@@ -34,6 +36,7 @@ export default function Hypervisors() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrgId]);
 
+  if (!orgLoaded) return null;
   if (!selectedOrgId) return <p className="text-sm text-neutral-500">Select an organization first.</p>;
   const canManage = roleAtLeast(effectiveRole(selectedOrgId), "admin");
 
@@ -64,6 +67,7 @@ export default function Hypervisors() {
 
       <DataTable<HypervisorHost>
         rows={hosts}
+        loading={!loaded}
         rowKey={(h) => h.id}
         searchValue={(h) => h.name}
         columns={[

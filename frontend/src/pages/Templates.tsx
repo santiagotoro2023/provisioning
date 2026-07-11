@@ -22,9 +22,10 @@ const WINDOWS_FEATURES: { name: string; label: string }[] = [
 ];
 
 export default function Templates() {
-  const { selectedOrgId } = useOrg();
+  const { selectedOrgId, loaded: orgLoaded } = useOrg();
   const { effectiveRole } = useAuth();
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [diskLayouts, setDiskLayouts] = useState<DiskLayout[]>([]);
   const [isoAssets, setIsoAssets] = useState<IsoAsset[]>([]);
   const [appAssets, setAppAssets] = useState<AppAsset[]>([]);
@@ -47,6 +48,7 @@ export default function Templates() {
     setDiskLayouts(d);
     setIsoAssets(i.filter((iso) => iso.kind === "windows_iso"));
     setAppAssets(a);
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -54,6 +56,7 @@ export default function Templates() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrgId]);
 
+  if (!orgLoaded) return null;
   if (!selectedOrgId) return <p className="text-sm text-neutral-500">Select an organization first.</p>;
   const canManage = roleAtLeast(effectiveRole(selectedOrgId), "operator");
 
@@ -125,6 +128,7 @@ export default function Templates() {
 
       <DataTable<DeploymentTemplate>
         rows={templates}
+        loading={!loaded}
         rowKey={(t) => t.id}
         searchValue={(t) => t.name}
         columns={[
