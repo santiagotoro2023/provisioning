@@ -24,6 +24,7 @@ export default function DeploymentDetail() {
   const [confirmRetryPostInstall, setConfirmRetryPostInstall] = useState(false);
   const [confirmDeleteDeployment, setConfirmDeleteDeployment] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const [answerFile, setAnswerFile] = useState<string | null>(null);
   const [showAnswerFile, setShowAnswerFile] = useState(false);
   const [answerFileError, setAnswerFileError] = useState<string | null>(null);
@@ -114,16 +115,28 @@ export default function DeploymentDetail() {
 
   async function retry() {
     if (!selectedOrgId || !id) return;
-    await api.post(`/organizations/${selectedOrgId}/deployments/${id}/retry`);
-    setConfirmRetry(false);
-    await loadStatic();
+    setRetryError(null);
+    try {
+      await api.post(`/organizations/${selectedOrgId}/deployments/${id}/retry`);
+      setConfirmRetry(false);
+      await loadStatic();
+    } catch (err) {
+      setConfirmRetry(false);
+      setRetryError(err instanceof ApiError ? err.message : "Failed to retry the deployment.");
+    }
   }
 
   async function retryPostInstall() {
     if (!selectedOrgId || !id) return;
-    await api.post(`/organizations/${selectedOrgId}/deployments/${id}/retry-post-install`);
-    setConfirmRetryPostInstall(false);
-    await loadStatic();
+    setRetryError(null);
+    try {
+      await api.post(`/organizations/${selectedOrgId}/deployments/${id}/retry-post-install`);
+      setConfirmRetryPostInstall(false);
+      await loadStatic();
+    } catch (err) {
+      setConfirmRetryPostInstall(false);
+      setRetryError(err instanceof ApiError ? err.message : "Failed to retry post-install.");
+    }
   }
 
   async function powerOn() {
@@ -263,6 +276,11 @@ export default function DeploymentDetail() {
         </div>
       </div>
 
+      {retryError && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+          {retryError}
+        </div>
+      )}
       {deleteError && (
         <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
           {deleteError}
