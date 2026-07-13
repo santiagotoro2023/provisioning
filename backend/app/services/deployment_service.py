@@ -81,3 +81,29 @@ async def retry_deployment(db: AsyncSession, deployment: Deployment) -> None:
     deployment.answer_iso_remote_path = None
     deployment.callback_token_used = False
     await db.commit()
+
+
+async def retry_post_install(db: AsyncSession, deployment: Deployment) -> None:
+    """Re-runs post-install only, reusing the existing VM instead of
+    provisioning a new one - only valid when a previous failure happened
+    late enough that provision.py's _fail chose to keep the VM rather
+    than delete it (state was POST_INSTALL/CONFIGURING at the point of
+    failure, meaning Windows Setup itself already succeeded). Sets state
+    back to INSTALLING_OS, not POST_INSTALL directly, because
+    run_post_install's own first action is the INSTALLING_OS ->
+    POST_INSTALL transition - this just re-enters the pipeline at the
+    same point run_deployment normally hands off to it."""
+    if deployment.state != DeploymentState.FAILED or not deployment.vm_moref:
+        raise InvalidTransition("only a failed deployment with a preserved VM can retry post-install")
+    db.add(
+        DeploymentStateTransition(
+            deployment_id=deployment.id,
+            from_state=deployment.state.value,
+            to_state=DeploymentState.INSTALLING_OS.value,
+            detail=f"retry post-install #{deployment.retry_count + 1}",
+        )
+    )
+    deployment.state = DeploymentState.INSTALLING_OS
+    deployment.error_message = None
+    deployment.retry_count += 1
+    await db.commit()

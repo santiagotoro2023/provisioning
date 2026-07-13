@@ -35,7 +35,7 @@ from app.schemas.deployment import (
 )
 from app.security.rbac import get_current_user, require_role
 from app.services import audit, notifications, webhooks
-from app.services.deployment_service import InvalidTransition, log, retry_deployment
+from app.services.deployment_service import InvalidTransition, log, retry_deployment, retry_post_install
 
 router = APIRouter(tags=["deployments"])
 
@@ -338,6 +338,32 @@ async def retry(
         {"deployment_id": str(deployment.id), "hostname": deployment.hostname},
     )
     await pool.enqueue_job("run_deployment", str(deployment.id))
+    await db.refresh(deployment)
+    return deployment
+
+
+@router.post(
+    "/api/organizations/{org_id}/deployments/{deployment_id}/retry-post-install",
+    response_model=DeploymentRead,
+    dependencies=[Depends(require_role(Role.OPERATOR))],
+)
+async def retry_post_install_only(
+    org_id: uuid.UUID, deployment_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> Deployment:
+    """Re-runs post-install against the same VM instead of provisioning a
+    new one - only available when the deployment failed after Windows
+    Setup itself already succeeded (see retry_post_install/_fail)."""
+    deployment = await _get_org_deployment(db, org_id, deployment_id)
+    try:
+        await retry_post_install(db, deployment)
+    except InvalidTransition as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    pool = await get_arq_pool()
+    await webhooks.dispatch(
+        db, pool, org_id, "deployment.retry",
+        {"deployment_id": str(deployment.id), "hostname": deployment.hostname},
+    )
+    await pool.enqueue_job("run_post_install", str(deployment.id))
     await db.refresh(deployment)
     return deployment
 

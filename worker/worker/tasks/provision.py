@@ -27,6 +27,16 @@ from app.winrm.client import WinRMClient
 
 _state_machine = DeploymentStateMachine()
 
+# _fail preserves the VM instead of deleting it when the deployment had
+# already reached one of these states: Windows Setup itself already
+# succeeded and the guest was already WinRM-reachable by that point, so
+# there's a perfectly good, bootable install sitting there - only a
+# post-install step (a script, a feature, an app) failed. Deleting it
+# and starting a whole new VM from scratch for what's often a one-line
+# script fix is exactly the "wait forever for a new VM" pain retry-
+# post-install exists to avoid - see deployment_service.retry_post_install.
+_KEEPABLE_ON_FAILURE_STATES = {DeploymentState.POST_INSTALL, DeploymentState.CONFIGURING}
+
 WINDOWS_ISO_UNIT = 0
 VIRTIO_ISO_UNIT = 1
 
@@ -175,7 +185,14 @@ async def _fail(
         await log(db, deployment, deployment.state.value, traceback_text, level=LogLevel.ERROR)
     await _cleanup_answer_floppy(driver, deployment)
     deployment.app_asset_access_token = None
-    if deployment.vm_moref:
+    if deployment.vm_moref and deployment.state in _KEEPABLE_ON_FAILURE_STATES:
+        await log(
+            db, deployment, deployment.state.value,
+            "Windows was already fully installed and reachable when this failed - "
+            "the VM was kept, not deleted. Use \"Retry post-install\" to try again "
+            "without a whole new deployment.",
+        )
+    elif deployment.vm_moref:
         try:
             await driver.delete_vm(deployment.vm_moref)
         except Exception:  # noqa: BLE001 - best-effort cleanup

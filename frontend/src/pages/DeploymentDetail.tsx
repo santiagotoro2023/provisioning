@@ -21,6 +21,7 @@ export default function DeploymentDetail() {
   const [logs, setLogs] = useState<DeploymentLogLine[]>([]);
   const [healthHistory, setHealthHistory] = useState<DeploymentHealthCheck[]>([]);
   const [confirmRetry, setConfirmRetry] = useState(false);
+  const [confirmRetryPostInstall, setConfirmRetryPostInstall] = useState(false);
   const [confirmDeleteDeployment, setConfirmDeleteDeployment] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [answerFile, setAnswerFile] = useState<string | null>(null);
@@ -106,6 +107,7 @@ export default function DeploymentDetail() {
   if (!deployment) return <p className="text-sm text-neutral-500">Loading...</p>;
 
   const canRetry = deployment.state === "failed" && roleAtLeast(effectiveRole(selectedOrgId), "operator");
+  const canRetryPostInstall = canRetry && !!deployment.vm_moref;
   const canOperateVm = roleAtLeast(effectiveRole(selectedOrgId), "operator");
   const canDeleteDeployment = roleAtLeast(effectiveRole(selectedOrgId), "admin");
   const currentStageIndex = STAGES.indexOf(deployment.state);
@@ -114,6 +116,13 @@ export default function DeploymentDetail() {
     if (!selectedOrgId || !id) return;
     await api.post(`/organizations/${selectedOrgId}/deployments/${id}/retry`);
     setConfirmRetry(false);
+    await loadStatic();
+  }
+
+  async function retryPostInstall() {
+    if (!selectedOrgId || !id) return;
+    await api.post(`/organizations/${selectedOrgId}/deployments/${id}/retry-post-install`);
+    setConfirmRetryPostInstall(false);
     await loadStatic();
   }
 
@@ -223,13 +232,23 @@ export default function DeploymentDetail() {
             </span>
           )}
           <Badge value={deployment.state} />
+          {canRetryPostInstall && (
+            <button
+              className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+              onClick={() => setConfirmRetryPostInstall(true)}
+              title="Windows was already installed - reconnects to the same VM instead of building a new one"
+            >
+              <RotateCw size={14} strokeWidth={1.75} />
+              Retry post-install
+            </button>
+          )}
           {canRetry && (
             <button
               className="flex items-center gap-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
               onClick={() => setConfirmRetry(true)}
             >
               <RotateCw size={14} strokeWidth={1.75} />
-              Retry
+              {canRetryPostInstall ? "Full retry" : "Retry"}
             </button>
           )}
           {canDeleteDeployment && (
@@ -402,9 +421,17 @@ export default function DeploymentDetail() {
       </div>
 
       <ConfirmDialog
+        open={confirmRetryPostInstall}
+        title="Retry post-install"
+        message="Reconnects to the existing VM and re-runs post-install (scripts, features, apps) - no new VM is created. Continue?"
+        confirmLabel="Retry post-install"
+        onConfirm={retryPostInstall}
+        onCancel={() => setConfirmRetryPostInstall(false)}
+      />
+      <ConfirmDialog
         open={confirmRetry}
-        title="Retry deployment"
-        message="This restarts provisioning from the beginning. Continue?"
+        title={canRetryPostInstall ? "Full retry" : "Retry deployment"}
+        message="This restarts provisioning from the beginning, including a new VM. Continue?"
         confirmLabel="Retry"
         onConfirm={retry}
         onCancel={() => setConfirmRetry(false)}

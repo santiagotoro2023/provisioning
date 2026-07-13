@@ -1,9 +1,28 @@
+import base64
 import ipaddress
 import json
+import uuid
 
 import winrm
 
 PS_HEADER = "$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'; "
+
+# pywinrm's run_ps base64-encodes the whole script for a single
+# `powershell -EncodedCommand <blob>` invocation, which travels through
+# WinRS as one command-line argument - real limit is roughly 8191
+# characters there, and UTF-16LE + base64 expands the source by ~2.67x
+# before it even hits that ceiling. A ~5000-character post-install
+# script (this project's own recovery-relocation script) hit it for
+# real: "Die Befehlszeile ist zu lang" / "the command line is too
+# long", which _run_post_install_scripts then reports as a script
+# failure with no other explanation. Kept well under the actual math
+# (~3071 raw chars) for margin against overhead this isn't modeling
+# exactly (pywinrm/WinRS flags, protocol framing).
+_LONG_SCRIPT_THRESHOLD = 2000
+# Same margin logic applied to each chunk-append command sent while
+# writing a long script to a remote temp file (see _run_long_ps): fixed
+# wrapper text around the chunk adds runs a similar 2.67x expansion.
+_SCRIPT_CHUNK_SIZE = 1800
 
 # Delimits the machine-readable summary line install_features appends
 # after Install-WindowsFeature's own human-readable table output (which
@@ -54,12 +73,44 @@ class WinRMClient:
         self._session = winrm.Session(host, auth=(username, password), transport="ntlm")
 
     def run_ps(self, script: str) -> WinRMResult:
-        result = self._session.run_ps(PS_HEADER + script)
+        full_script = PS_HEADER + script
+        if len(full_script) <= _LONG_SCRIPT_THRESHOLD:
+            return self._run_ps_direct(full_script)
+        return self._run_long_ps(full_script)
+
+    def _run_ps_direct(self, full_script: str) -> WinRMResult:
+        result = self._session.run_ps(full_script)
         return WinRMResult(
             result.status_code,
             result.std_out.decode(errors="replace"),
             result.std_err.decode(errors="replace"),
         )
+
+    def _run_long_ps(self, full_script: str) -> WinRMResult:
+        """Writes the script to a remote temp file across several
+        safely-sized append commands, then runs it from there in one
+        short final command - see _LONG_SCRIPT_THRESHOLD for why this is
+        needed at all."""
+        remote_path = f"C:\\Windows\\Temp\\deploycore_script_{uuid.uuid4().hex}.ps1"
+        setup_result = self._run_ps_direct(f"Set-Content -Path '{remote_path}' -Value '' -Encoding UTF8 -Force")
+        if not setup_result.ok:
+            return setup_result
+
+        encoded = base64.b64encode(full_script.encode("utf-8")).decode("ascii")
+        for i in range(0, len(encoded), _SCRIPT_CHUNK_SIZE):
+            chunk = encoded[i : i + _SCRIPT_CHUNK_SIZE]
+            append_cmd = (
+                "$ErrorActionPreference = 'Stop'; "
+                f"[System.IO.File]::AppendAllText('{remote_path}', "
+                f"[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{chunk}')))"
+            )
+            result = self._run_ps_direct(append_cmd)
+            if not result.ok:
+                return result
+
+        final_result = self._run_ps_direct(f"& '{remote_path}'")
+        self._run_ps_direct(f"Remove-Item -Path '{remote_path}' -Force -ErrorAction SilentlyContinue")
+        return final_result
 
     def install_features(self, feature_names: list[str]) -> FeatureInstallResult:
         """One Install-WindowsFeature call for every requested feature
