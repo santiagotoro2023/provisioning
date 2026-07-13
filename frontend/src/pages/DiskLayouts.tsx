@@ -1,4 +1,4 @@
-import { Download, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -10,6 +10,10 @@ import { DiskLayout } from "../api/types";
 import { useAuth, roleAtLeast } from "../state/auth";
 import { useOrg } from "../state/org";
 
+function layoutBasePath(orgId: string, l: Pick<DiskLayout, "org_id" | "id">): string {
+  return l.org_id ? `/organizations/${orgId}/disk-layouts/${l.id}` : `/disk-layouts/global/${l.id}`;
+}
+
 interface ExtraVolumeForm {
   label: string;
   drive_letter: string;
@@ -18,10 +22,12 @@ interface ExtraVolumeForm {
 
 export default function DiskLayouts() {
   const { selectedOrgId, loaded: orgLoaded } = useOrg();
-  const { effectiveRole } = useAuth();
+  const { user, effectiveRole } = useAuth();
+  const isGlobalAdmin = user?.global_role === "admin";
   const [layouts, setLayouts] = useState<DiskLayout[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [creatingGlobal, setCreatingGlobal] = useState(false);
   const [editing, setEditing] = useState<DiskLayout | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<DiskLayout | null>(null);
@@ -63,8 +69,8 @@ export default function DiskLayouts() {
   }
 
   async function deleteLayout() {
-    if (!confirmDelete) return;
-    await api.delete(`/organizations/${selectedOrgId}/disk-layouts/${confirmDelete.id}`);
+    if (!confirmDelete || !selectedOrgId) return;
+    await api.delete(layoutBasePath(selectedOrgId, confirmDelete));
     setConfirmDelete(null);
     await load();
   }
@@ -96,6 +102,16 @@ export default function DiskLayouts() {
               <Plus size={15} strokeWidth={2} />
               New disk layout
             </button>
+            {isGlobalAdmin && (
+              <button
+                className="flex items-center gap-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                onClick={() => setCreatingGlobal(true)}
+                title="Available to every organization, not just this one"
+              >
+                <Plus size={15} strokeWidth={2} />
+                New global disk layout
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -123,35 +139,39 @@ export default function DiskLayouts() {
           {
             key: "actions",
             header: "",
-            render: (l) =>
-              canManage && (
-                <div className="flex items-center gap-1.5">
-                  {l.org_id === selectedOrgId && (
+            render: (l) => {
+              const canEditThis = l.org_id === selectedOrgId ? canManage : l.org_id === null && isGlobalAdmin;
+              return (
+                canManage && (
+                  <div className="flex items-center gap-1.5">
+                    {canEditThis && (
+                      <button
+                        className="flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                        onClick={() => setEditing(l)}
+                      >
+                        <Pencil size={12} strokeWidth={1.75} />
+                        Edit
+                      </button>
+                    )}
                     <button
                       className="flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                      onClick={() => setEditing(l)}
+                      onClick={() => exportLayout(l)}
                     >
-                      <Pencil size={12} strokeWidth={1.75} />
-                      Edit
+                      <Download size={12} strokeWidth={1.75} />
+                      Export
                     </button>
-                  )}
-                  <button
-                    className="flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                    onClick={() => exportLayout(l)}
-                  >
-                    <Download size={12} strokeWidth={1.75} />
-                    Export
-                  </button>
-                  {l.org_id === selectedOrgId && (
-                    <button
-                      className="flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
-                      onClick={() => setConfirmDelete(l)}
-                    >
-                      <Trash2 size={12} strokeWidth={1.75} />
-                    </button>
-                  )}
-                </div>
-              ),
+                    {canEditThis && (
+                      <button
+                        className="flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                        onClick={() => setConfirmDelete(l)}
+                      >
+                        <Trash2 size={12} strokeWidth={1.75} />
+                      </button>
+                    )}
+                  </div>
+                )
+              );
+            },
           },
         ]}
       />
@@ -166,9 +186,21 @@ export default function DiskLayouts() {
           }}
         />
       )}
+      {creatingGlobal && (
+        <DiskLayoutForm
+          orgId={selectedOrgId}
+          isGlobal
+          onClose={() => setCreatingGlobal(false)}
+          onSaved={async () => {
+            setCreatingGlobal(false);
+            await load();
+          }}
+        />
+      )}
       {editing && (
         <DiskLayoutForm
           orgId={selectedOrgId}
+          isGlobal={editing.org_id === null}
           existing={editing}
           onClose={() => setEditing(null)}
           onSaved={async () => {
@@ -193,11 +225,13 @@ export default function DiskLayouts() {
 function DiskLayoutForm({
   orgId,
   existing,
+  isGlobal = false,
   onClose,
   onSaved,
 }: {
   orgId: string;
   existing?: DiskLayout;
+  isGlobal?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -216,6 +250,38 @@ function DiskLayoutForm({
   const [recoverySizeMb, setRecoverySizeMb] = useState(existing?.layout_json.recovery_size_mb ?? 1000);
   const [postInstallScripts, setPostInstallScripts] = useState<PostInstallScriptForm[]>(existing?.post_install_scripts ?? []);
   const [error, setError] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewXml, setPreviewXml] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  function currentLayout() {
+    return {
+      efi_size_mb: efiSizeMb,
+      msr_size_mb: msrSizeMb,
+      recovery_size_mb: recoveryEnabled ? recoverySizeMb : null,
+      os_volume: osVolumeMode === "remaining" ? "remaining" : { size_mb: osVolumeSizeMb },
+      extra_volumes: extraVolumes,
+    };
+  }
+
+  async function togglePreview() {
+    if (showPreview) {
+      setShowPreview(false);
+      return;
+    }
+    setShowPreview(true);
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const { xml } = await api.post<{ xml: string }>("/disk-layouts/preview", currentLayout());
+      setPreviewXml(xml);
+    } catch (err) {
+      setPreviewError(err instanceof ApiError ? err.message : "Could not render preview - check the values above.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
 
   function addVolume() {
     setExtraVolumes([...extraVolumes, { label: "Data", drive_letter: "D", size_mb: 51200 }]);
@@ -238,20 +304,16 @@ function DiskLayoutForm({
     }
     const body = {
       name,
-      layout: {
-        efi_size_mb: efiSizeMb,
-        msr_size_mb: msrSizeMb,
-        recovery_size_mb: recoveryEnabled ? recoverySizeMb : null,
-        os_volume: osVolumeMode === "remaining" ? "remaining" : { size_mb: osVolumeSizeMb },
-        extra_volumes: extraVolumes,
-      },
+      layout: currentLayout(),
       post_install_scripts: postInstallScripts,
     };
     try {
       if (isEdit) {
-        await api.patch(`/organizations/${orgId}/disk-layouts/${existing!.id}`, body);
+        const path = isGlobal ? `/disk-layouts/global/${existing!.id}` : `/organizations/${orgId}/disk-layouts/${existing!.id}`;
+        await api.patch(path, body);
       } else {
-        await api.post(`/organizations/${orgId}/disk-layouts`, body);
+        const path = isGlobal ? "/disk-layouts/global" : `/organizations/${orgId}/disk-layouts`;
+        await api.post(path, body);
       }
       onSaved();
     } catch (err) {
@@ -262,7 +324,10 @@ function DiskLayoutForm({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/30 py-8">
       <form noValidate onSubmit={onSubmit} className="w-[32rem] rounded-lg border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-700 dark:bg-neutral-900">
-        <h2 className="mb-4 text-sm font-semibold">{isEdit ? `Edit ${existing!.name}` : "New disk layout"}</h2>
+        <h2 className="mb-4 text-sm font-semibold">
+          {isEdit ? `Edit ${existing!.name}` : isGlobal ? "New global disk layout" : "New disk layout"}
+          {isGlobal && <span className="ml-2 rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-normal text-neutral-500 dark:bg-neutral-800">global</span>}
+        </h2>
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Name</label>
         <input
           className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
@@ -274,15 +339,18 @@ function DiskLayoutForm({
             <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">EFI size (MB)</label>
             <input
               type="number"
+              min={260}
               className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
               value={efiSizeMb}
               onChange={(e) => setEfiSizeMb(Number(e.target.value))}
             />
+            <p className="mt-1 text-xs text-neutral-500">260 MB minimum - below that Windows Setup can fail to write boot data on 4K-sector drives.</p>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">MSR size (MB)</label>
             <input
               type="number"
+              min={16}
               className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
               value={msrSizeMb}
               onChange={(e) => setMsrSizeMb(Number(e.target.value))}
@@ -385,6 +453,24 @@ function DiskLayoutForm({
             disk/partition fixups (diskpart, DISM, reagentc, bcdedit) that need a pristine, freshly-booted
             disk. A failure stops the deployment rather than continuing past it.
           </p>
+        </div>
+
+        <div className="mb-3">
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
+            onClick={togglePreview}
+          >
+            {showPreview ? <ChevronDown size={13} strokeWidth={2} /> : <ChevronRight size={13} strokeWidth={2} />}
+            Preview generated partition XML
+          </button>
+          {showPreview && (
+            <div className="mt-2 max-h-48 overflow-auto rounded-md border border-neutral-300 bg-neutral-50 p-2 dark:border-neutral-700 dark:bg-neutral-950">
+              {previewLoading && <p className="text-xs text-neutral-500">Rendering...</p>}
+              {previewError && <p className="text-xs text-red-600">{previewError}</p>}
+              {previewXml && <pre className="whitespace-pre-wrap text-xs text-neutral-700 dark:text-neutral-300">{previewXml}</pre>}
+            </div>
+          )}
         </div>
 
         {error && <div className="mb-3 text-xs text-red-600">{error}</div>}

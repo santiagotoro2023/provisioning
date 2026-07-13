@@ -407,7 +407,7 @@ async def set_tls_mode(
 @router.get(
     "/api/organizations/{org_id}/settings",
     response_model=list[SettingRead],
-    dependencies=[Depends(require_role(Role.READONLY))],
+    dependencies=[Depends(require_role(Role.ADMIN))],
 )
 async def list_org_settings(org_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> list[Setting]:
     result = await db.execute(

@@ -2,8 +2,8 @@ import { ReactElement, useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { api } from "./api/client";
 import Layout from "./components/Layout";
-import { AuthProvider, useAuth } from "./state/auth";
-import { OrgProvider } from "./state/org";
+import { AuthProvider, roleAtLeast, useAuth } from "./state/auth";
+import { OrgProvider, useOrg } from "./state/org";
 
 import AccountSettings from "./pages/AccountSettings";
 import AppAssets from "./pages/AppAssets";
@@ -28,6 +28,14 @@ function RequireAuth({ children }: { children: ReactElement }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="p-8 text-sm text-neutral-500">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+function RequireAdmin({ children }: { children: ReactElement }) {
+  const { effectiveRole } = useAuth();
+  const { selectedOrgId, loaded } = useOrg();
+  if (!loaded) return null;
+  if (!roleAtLeast(effectiveRole(selectedOrgId), "admin")) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -56,7 +64,14 @@ function AppRoutes() {
         <Route path="webhooks" element={<Webhooks />} />
         <Route path="users" element={<Users />} />
         <Route path="account" element={<AccountSettings />} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route
+          path="settings"
+          element={
+            <RequireAdmin>
+              <SettingsPage />
+            </RequireAdmin>
+          }
+        />
         <Route path="audit-log" element={<AuditLog />} />
         <Route path="wiki" element={<Wiki />} />
       </Route>

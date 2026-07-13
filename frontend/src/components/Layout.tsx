@@ -41,18 +41,25 @@ const NAV_ITEMS = [
   { to: "/users", label: "Users", icon: UsersIcon, globalAdminOnly: true },
   { to: "/account", label: "Account", icon: Shield },
   { to: "/audit-log", label: "Audit Log", icon: ScrollText },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
+  { to: "/settings", label: "Settings", icon: SettingsIcon, adminOnly: true },
 ];
 
 export default function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, effectiveRole } = useAuth();
   const { organizations, selectedOrgId, selectOrg, loaded: orgLoaded } = useOrg();
   const { name: instanceName, hasLogo } = useInstanceInfo();
   const { theme, toggle } = useTheme();
 
-  const navItems = NAV_ITEMS.filter(
-    (item) => !item.globalAdminOnly || (user && roleAtLeast(user.global_role, "admin")),
-  );
+  // Settings (instance cards + org-scoped "Deployment settings") is
+  // admin-only end to end, not just disabled controls for lower roles -
+  // readonly/operator shouldn't even know it exists. Their own Account
+  // page (separate nav item) stays open to everyone regardless of role.
+  const isEffectiveAdmin = roleAtLeast(effectiveRole(selectedOrgId), "admin");
+  const navItems = NAV_ITEMS.filter((item) => {
+    if (item.globalAdminOnly) return !!user && roleAtLeast(user.global_role, "admin");
+    if (item.adminOnly) return isEffectiveAdmin;
+    return true;
+  });
 
   return (
     <div className="flex min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">

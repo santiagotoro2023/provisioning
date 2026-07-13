@@ -16,14 +16,17 @@ from app.services import audit
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
-# EFI/MSR at Microsoft/diskpart defaults; recovery partition sized per the
-# "recovery mid-disk" technique (a Windows RE tools partition placed before
-# the OS volume instead of appended at the end, so expanding the OS volume
+# EFI sized per Microsoft's own documented safe minimum for Advanced
+# Format 4K-native-sector drives (100 MB is the absolute floor and has
+# caused real "BCD: Failed to add system store" Setup failures with no
+# headroom to fall back on); recovery partition sized per the "recovery
+# mid-disk" technique (a Windows RE tools partition placed before the OS
+# volume instead of appended at the end, so expanding the OS volume
 # later is not blocked by a trailing recovery partition).
 DEFAULT_DISK_LAYOUT_NAME = "Windows Server (Recovery Mid-Disk)"
 DEFAULT_DISK_LAYOUT_JSON = {
-    "efi_size_mb": 100,
-    "msr_size_mb": 16,
+    "efi_size_mb": 500,
+    "msr_size_mb": 128,
     "recovery_size_mb": 1000,
     "os_volume": "remaining",
     "extra_volumes": [],

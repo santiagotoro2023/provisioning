@@ -7,11 +7,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.models.disk_layout import DiskLayout
 from app.models.user import Role, User
-from app.schemas.disk_layout import DiskLayoutCreate, DiskLayoutRead, DiskLayoutUpdate
+from app.schemas.disk_layout import DiskLayoutCreate, DiskLayoutJson, DiskLayoutRead, DiskLayoutUpdate
 from app.security.rbac import get_current_user, require_role
 from app.services import audit
+from app.services.template_render import render_disk_configuration
 
 router = APIRouter(tags=["disk-layouts"])
+
+
+@router.post("/api/disk-layouts/preview")
+async def preview_disk_layout(body: DiskLayoutJson, current_user: User = Depends(get_current_user)) -> dict:
+    """Renders the exact <Disk> XML fragment this layout would produce,
+    without saving anything - lets an operator see what Setup will
+    actually execute before committing to a layout. No role check beyond
+    being logged in: the render is a pure function of the submitted body,
+    it doesn't read or leak any stored data."""
+    return {"xml": render_disk_configuration(body.model_dump())}
 
 
 @router.get(
@@ -191,3 +202,56 @@ async def create_global_disk_layout(
     await db.commit()
     await db.refresh(layout)
     return layout
+
+
+async def _get_global_layout(db: AsyncSession, layout_id: uuid.UUID) -> DiskLayout:
+    layout = await db.get(DiskLayout, layout_id)
+    if layout is None or layout.org_id is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "global disk layout not found")
+    return layout
+
+
+@router.patch(
+    "/api/disk-layouts/global/{layout_id}",
+    response_model=DiskLayoutRead,
+    dependencies=[Depends(require_role(Role.ADMIN, org_scoped=False))],
+)
+async def update_global_disk_layout(
+    layout_id: uuid.UUID,
+    body: DiskLayoutUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DiskLayout:
+    layout = await _get_global_layout(db, layout_id)
+    if body.name is not None:
+        layout.name = body.name
+    if body.layout is not None:
+        layout.layout_json = body.layout.model_dump()
+    if body.post_install_scripts is not None:
+        layout.post_install_scripts = [s.model_dump() for s in body.post_install_scripts]
+    audit.record(
+        db, action="disk_layout.update_global", target_type="disk_layout",
+        user_id=current_user.id, target_id=layout.id,
+    )
+    await db.commit()
+    await db.refresh(layout)
+    return layout
+
+
+@router.delete(
+    "/api/disk-layouts/global/{layout_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role(Role.ADMIN, org_scoped=False))],
+)
+async def delete_global_disk_layout(
+    layout_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    layout = await _get_global_layout(db, layout_id)
+    audit.record(
+        db, action="disk_layout.delete_global", target_type="disk_layout",
+        user_id=current_user.id, target_id=layout.id, detail={"name": layout.name},
+    )
+    await db.delete(layout)
+    await db.commit()

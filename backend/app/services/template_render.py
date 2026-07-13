@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import jinja2
 
@@ -97,3 +98,12 @@ def render_autounattend(
         if deployment.ip_mode == IpMode.STATIC and deployment.static_netmask
         else None,
     )
+
+
+def render_disk_configuration(layout_json: dict) -> str:
+    """Renders just the <Disk> fragment a disk layout would produce,
+    without needing a real Deployment/DeploymentTemplate/DiskLayout row -
+    lets the disk layout editor preview exactly what Setup will execute
+    before saving."""
+    tmpl = _ENV.get_template("_disk_configuration.xml.j2")
+    return tmpl.render(disk_layout=SimpleNamespace(layout_json=layout_json))
