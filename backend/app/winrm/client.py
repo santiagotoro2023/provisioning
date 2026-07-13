@@ -275,9 +275,17 @@ if ($missing) {{
         entry to appear afterward - what every real installer (MSI or a
         normal EXE installer) registers on completion, regardless of
         whether the process that reports it is the one originally
-        launched or a child/relaunch. Only a portable/no-install "app"
-        that never registers anything would be a false negative here -
-        not a concern for the installer catalog this project targets."""
+        launched or a child/relaunch.
+
+        Checks HKCU as well as HKLM (+ WOW6432Node): several installers,
+        Firefox's stub/online installer among them, default to a
+        per-user install (no elevation, %LocalAppData%) rather than a
+        system-wide one, registering only under the current user's own
+        Uninstall key - HKLM-only would never see that as a false
+        negative regardless of how long it polled. Only a genuinely
+        portable/no-install "app" that never registers anything in
+        either hive would still be missed - not a concern for the
+        installer catalog this project targets."""
         url = _ps_single_quote(download_url)
         path = _ps_single_quote(remote_path)
         if kind == "msi":
@@ -292,8 +300,12 @@ if ($missing) {{
             run_line = f"$p = Start-Process -FilePath {path} -ArgumentList {arg_list} -Wait -PassThru"
         script = f"""
 function Get-UninstallEntries {{
-    Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue |
-        Where-Object {{ $_.DisplayName }} | Select-Object -ExpandProperty PSChildName
+    Get-ItemProperty @(
+        'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
+        'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
+        'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'
+    ) -ErrorAction SilentlyContinue |
+        Where-Object {{ $_.DisplayName }} | ForEach-Object {{ "$($_.PSDrive.Name):$($_.PSChildName)" }}
 }}
 $before = @(Get-UninstallEntries)
 Invoke-WebRequest -Uri {url} -OutFile {path} -UseBasicParsing
