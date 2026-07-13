@@ -143,8 +143,19 @@ class ESXiDriver(HypervisorDriver):
             # icon/optimization hints, not the actual installation.
             config.guestId = "windows9Server64Guest"
             config.firmware = "efi" if spec.firmware == "efi" else "bios"
+            # Explicit "folder/name.vmx", not just "[datastore] name": the
+            # latter leaves it to the host's own default-naming resolution
+            # to decide where the .vmx actually lands, and this specific
+            # ESXi version was confirmed nesting it one level too deep -
+            # [datastore]/name/name/name.vmx instead of the expected
+            # [datastore]/name/name.vmx - which is also why deleting a VM
+            # always left an outer folder behind: Destroy_Task correctly
+            # removes the VM's actual (inner) home directory, but had no
+            # idea an extra, empty wrapping folder existed one level above
+            # it. Spelling out the exact filename removes the ambiguity
+            # this resolution logic apparently disagreed with us on.
             config.files = vim.vm.FileInfo(
-                vmPathName=f"[{datastore_name}] {spec.name}"
+                vmPathName=f"[{datastore_name}] {spec.name}/{spec.name}.vmx"
             )
             config.deviceChange = [controller, disk_spec, nic_spec]
 
@@ -476,7 +487,7 @@ class ESXiDriver(HypervisorDriver):
                     name=f"[{datastore_name}] {name}", datacenter=datacenter
                 ))
             except Exception:  # noqa: BLE001 - best-effort, folder is usually already gone
-                pass
+                logger.info("esxi: post-Destroy_Task folder cleanup for %s found nothing to remove (usually already gone)", name)
         finally:
             connect.Disconnect(service_instance)
 
