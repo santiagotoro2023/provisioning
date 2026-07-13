@@ -124,12 +124,15 @@ def test_disk_layout_with_recovery_partition_mid_disk():
     assert len(create_partitions) == 4
     assert create_partitions[2].xpath("string(.//u:Size)", namespaces=NS) == "1000"
 
+    # Partition 3 (recovery) is intentionally left raw - no ModifyPartition
+    # entry at all, so it's untouched (no Format/Label/TypeID) by Setup's
+    # own DiskConfiguration pass. The post-install "Recovery partition
+    # relocation" script formats and types it after Windows is installed
+    # instead - see _disk_configuration.xml.j2's comment for why.
     modify_partitions = root.xpath("//u:ModifyPartition", namespaces=NS)
-    assert len(modify_partitions) == 4
-    recovery_partition = modify_partitions[2]
-    assert recovery_partition.xpath("string(.//u:Label)", namespaces=NS) == "Windows RE tools"
-    assert recovery_partition.xpath("string(.//u:TypeID)", namespaces=NS) == "DE94BBA4-06D1-4D40-A16A-BFD50179D6AC"
-    assert recovery_partition.xpath(".//u:Letter", namespaces=NS) == []
+    assert len(modify_partitions) == 3
+    modified_ids = [m.xpath("string(.//u:PartitionID)", namespaces=NS) for m in modify_partitions]
+    assert "3" not in modified_ids
 
     install_to = root.xpath("//u:InstallTo/u:PartitionID", namespaces=NS)
     assert install_to[0].text == "4"

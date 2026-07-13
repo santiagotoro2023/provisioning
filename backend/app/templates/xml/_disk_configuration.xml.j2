@@ -51,15 +51,18 @@
             <Order>2</Order>
             <PartitionID>2</PartitionID>
         </ModifyPartition>
-{% if recovery_size_mb %}
-        <ModifyPartition wcm:action="add">
-            <Order>3</Order>
-            <PartitionID>3</PartitionID>
-            <Format>NTFS</Format>
-            <Label>Windows RE tools</Label>
-            <TypeID>DE94BBA4-06D1-4D40-A16A-BFD50179D6AC</TypeID>
-        </ModifyPartition>
-{% endif %}
+{# Partition 3 (recovery, when recovery_size_mb is set) is deliberately left
+   raw here - no Format/Label/TypeID. Formatting/typing it as WinRE during
+   Setup's own DiskConfiguration pass, before Windows exists on the disk, is
+   untested territory the source blog never exercises either - its
+   equivalent partition stays raw through the whole install and is only
+   formatted/typed afterward, manually. A real deployment failed Setup's own
+   BCD creation on this exact layout with no other explanation found after a
+   full git-history audit, so this was reverted to match the blog's proven
+   order of operations rather than kept as an unverified assumption. The
+   post-install "Recovery partition relocation" script in setup.py's
+   DEFAULT_DISK_LAYOUT_POST_INSTALL_SCRIPTS formats and retypes it after
+   Windows is fully installed instead. #}
         <ModifyPartition wcm:action="add">
             <Order>{{ os_partition_number }}</Order>
             <PartitionID>{{ os_partition_number }}</PartitionID>
