@@ -106,7 +106,7 @@ export default function DiskLayouts() {
               <button
                 className="flex items-center gap-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
                 onClick={() => setCreatingGlobal(true)}
-                title="Available to every organization, not just this one"
+                title="Visible to every organization"
               >
                 <Plus size={15} strokeWidth={2} />
                 New global disk layout
@@ -344,7 +344,7 @@ function DiskLayoutForm({
               value={efiSizeMb}
               onChange={(e) => setEfiSizeMb(Number(e.target.value))}
             />
-            <p className="mt-1 text-xs text-neutral-500">260 MB minimum - below that Windows Setup can fail to write boot data on 4K-sector drives.</p>
+            <p className="mt-1 text-xs text-neutral-500">260 MB minimum.</p>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">MSR size (MB)</label>
@@ -393,10 +393,7 @@ function DiskLayoutForm({
               value={recoverySizeMb}
               onChange={(e) => setRecoverySizeMb(Number(e.target.value))}
             />
-            <p className="mt-1 text-xs text-neutral-500">
-              Places Windows RE tools before the OS volume instead of at the end of the disk, so a later
-              hypervisor-side disk expansion is not blocked by a trailing recovery partition.
-            </p>
+            <p className="mt-1 text-xs text-neutral-500">See the Wiki for details.</p>
           </div>
         )}
 
@@ -448,11 +445,7 @@ function DiskLayoutForm({
 
         <div className="mb-3">
           <PostInstallScriptsEditor scripts={postInstallScripts} onChange={setPostInstallScripts} />
-          <p className="mt-1 text-xs text-neutral-500">
-            Run over WinRM before anything else in post-install (VMware Tools, roles, apps) - for
-            disk/partition fixups (diskpart, DISM, reagentc, bcdedit) that need a pristine, freshly-booted
-            disk. A failure stops the deployment rather than continuing past it.
-          </p>
+          <p className="mt-1 text-xs text-neutral-500">Runs first, over WinRM. See the Wiki for details.</p>
         </div>
 
         <div className="mb-3">

@@ -31,6 +31,33 @@ DEFAULT_DISK_LAYOUT_JSON = {
     "os_volume": "remaining",
     "extra_volumes": [],
 }
+# Read-only: pre-creating the mid-disk "Windows RE tools" partition via
+# DiskConfiguration does NOT by itself make Windows Setup relocate the
+# actual recovery image there - that needs a real diskpart/DISM/reagentc
+# sequence, which depends on which of a few possible states Setup left
+# the disk in (a state that isn't documented and hasn't been observed
+# yet on this project's own images). This just reports that state into
+# the deployment log so the real relocation script can be written
+# against confirmed behavior instead of guessed. Never throws (every
+# cmdlet is caught) so it can't block the rest of post-install.
+DEFAULT_DISK_LAYOUT_POST_INSTALL_SCRIPTS = [
+    {
+        "name": "Recovery partition diagnostic (read-only)",
+        "script_text": (
+            "function Safe($block) { try { & $block | Out-String } "
+            "catch { \"error: $($_.Exception.Message)\" } }\n"
+            "Write-Output '=== reagentc /info ==='\n"
+            "Write-Output (Safe { reagentc /info })\n"
+            "Write-Output '=== Get-Partition -DiskNumber 0 ==='\n"
+            "Write-Output (Safe { Get-Partition -DiskNumber 0 | "
+            "Select-Object PartitionNumber, Type, Size, DriveLetter, GptType | Format-Table -AutoSize })\n"
+            "Write-Output '=== Recovery-labeled volumes ==='\n"
+            "Write-Output (Safe { Get-Volume | Where-Object { $_.FileSystemLabel -eq 'Windows RE tools' -or "
+            "$_.FileSystemLabel -like '*Recovery*' } | "
+            "Select-Object DriveLetter, FileSystemLabel, Size, SizeRemaining | Format-Table -AutoSize })\n"
+        ),
+    }
+]
 
 
 async def _needs_setup(db: AsyncSession) -> bool:
@@ -64,7 +91,14 @@ async def complete_setup(
     await db.flush()
 
     db.add(Setting(scope=SettingScope.GLOBAL, key="instance_name", value=body.instance_name))
-    db.add(DiskLayout(org_id=None, name=DEFAULT_DISK_LAYOUT_NAME, layout_json=DEFAULT_DISK_LAYOUT_JSON))
+    db.add(
+        DiskLayout(
+            org_id=None,
+            name=DEFAULT_DISK_LAYOUT_NAME,
+            layout_json=DEFAULT_DISK_LAYOUT_JSON,
+            post_install_scripts=DEFAULT_DISK_LAYOUT_POST_INSTALL_SCRIPTS,
+        )
+    )
     audit.record(
         db,
         action="instance.setup",
