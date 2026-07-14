@@ -55,6 +55,7 @@ class DeploymentTemplateCreate(BaseModel):
     domain_join_timing: DomainJoinTiming = DomainJoinTiming.ANSWER_FILE
     enable_rdp: bool = True
     install_windows_updates: bool = True
+    install_vmware_tools: bool = True
     windows_features: list[str] = []
     post_install_scripts: list[PostInstallScript] = []
     app_installs: list[AppInstallEntry] = []
@@ -87,6 +88,7 @@ class DeploymentTemplateUpdate(BaseModel):
     domain_join_timing: DomainJoinTiming | None = None
     enable_rdp: bool | None = None
     install_windows_updates: bool | None = None
+    install_vmware_tools: bool | None = None
     windows_features: list[str] | None = None
     post_install_scripts: list[PostInstallScript] | None = None
     app_installs: list[AppInstallEntry] | None = None
@@ -121,6 +123,7 @@ class DeploymentTemplateRead(BaseModel):
     domain_join_timing: DomainJoinTiming
     enable_rdp: bool
     install_windows_updates: bool
+    install_vmware_tools: bool
     windows_features: list[str]
     post_install_scripts: list[PostInstallScript]
     app_installs: list[AppInstallEntry]
@@ -170,6 +173,7 @@ class DeploymentTemplateExport(BaseModel):
     domain_join_timing: DomainJoinTiming
     enable_rdp: bool
     install_windows_updates: bool
+    install_vmware_tools: bool
     windows_features: list[str]
     post_install_scripts: list[PostInstallScript]
 
@@ -196,5 +200,6 @@ class DeploymentTemplateImport(BaseModel):
     domain_join_timing: DomainJoinTiming = DomainJoinTiming.ANSWER_FILE
     enable_rdp: bool = True
     install_windows_updates: bool = True
+    install_vmware_tools: bool = True
     windows_features: list[str] = []
     post_install_scripts: list[PostInstallScript] = []

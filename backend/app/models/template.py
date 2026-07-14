@@ -111,6 +111,14 @@ class DeploymentTemplate(UUIDPKMixin, TimestampMixin, Base):
     # trade-off already baked into what "on" means.
     install_windows_updates: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # On by default (matches previous unconditional behavior). Off skips
+    # both HypervisorDriver.mount_tools_installer and
+    # WinRMClient.install_vmware_tools entirely - meaningful for a non-ESXi
+    # future driver, a host without the Tools ISO in its own depot, or a
+    # DHCP deployment that doesn't need get_guest_ip() (already has some
+    # other way to be reached, e.g. a domain join landing it in DNS).
+    install_vmware_tools: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
     windows_features: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     post_install_scripts: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     # Ordered list of {"app_asset_id": "<uuid str>", "install_args": "<str>"},

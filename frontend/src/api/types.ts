@@ -128,6 +128,7 @@ export interface DeploymentTemplate {
   domain_join_timing: DomainJoinTiming;
   enable_rdp: boolean;
   install_windows_updates: boolean;
+  install_vmware_tools: boolean;
   windows_features: string[];
   post_install_scripts: PostInstallScript[];
   app_installs: AppInstallEntry[];

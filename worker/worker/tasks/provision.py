@@ -754,62 +754,64 @@ async def run_post_install(ctx, deployment_id: str) -> None:
             # anything else runs on top of them. See WinRMClient.
             # install_vmware_tools for why this runs here over WinRM
             # instead of during Windows Setup's specialize pass.
-            #
-            # mount_tools_installer runs right here, not at VM creation -
-            # see its own docstring (esxi.py) for why: it needs an
-            # existing CD-ROM device to attach the Tools ISO to, and by
-            # now the Windows ISO's device already exists and has already
-            # been ejected (empty) by the Setup-complete callback handler,
-            # free to reuse. Best-effort, same as everything else here -
-            # if this genuinely isn't an ESXi host, or the mount call
-            # itself fails, install_vmware_tools below just won't find
-            # anything on D:/E:/F: and reports NOT_FOUND the same as
-            # always.
-            tools_cdrom_unit = None
-            try:
-                tools_cdrom_unit = await driver.mount_tools_installer(deployment.vm_moref)
-            except Exception as exc:  # noqa: BLE001 - best-effort, never worth failing a deployment over
-                await log(
-                    db, deployment, "post_install",
-                    f"failed to mount VMware Tools installer: {exc}", level=LogLevel.WARN,
-                )
-
-            await log(db, deployment, "post_install", "installing VMware Tools")
-            tools_result = await _run_with_heartbeat(
-                db, deployment, "post_install", "installing VMware Tools",
-                client.install_vmware_tools,
-            )
-            if not tools_result.ok:
-                await log(
-                    db, deployment, "post_install",
-                    f"VMware Tools install failed, continuing without it: {tools_result.stderr}",
-                    level=LogLevel.WARN,
-                )
-            elif tools_result.installed:
-                await log(db, deployment, "post_install", "VMware Tools installed, rebooting to apply driver updates")
-                await _reboot_and_wait(
-                    db, deployment, "post_install", client,
-                    lambda: WinRMClient(guest_ip, template.local_admin_username, template.local_admin_password),
-                    "guest did not come back reachable after the VMware Tools reboot",
-                )
-            else:
-                await log(db, deployment, "post_install", "no VMware Tools installer found (not an ESXi host, or Tools ISO wasn't mounted)")
-
-            # Cleans up after itself either way - a completed
-            # deployment's VM should look the same whether or not Tools
-            # ever got installed, not carry mounted installer media
-            # around indefinitely just because this run happened to need
-            # it briefly. Only ejects if mount_tools_installer actually
-            # reported a unit above; nothing to eject otherwise.
-            if tools_cdrom_unit is not None:
+            if template.install_vmware_tools:
+                # mount_tools_installer runs right here, not at VM creation -
+                # see its own docstring (esxi.py) for why: it needs an
+                # existing CD-ROM device to attach the Tools ISO to, and by
+                # now the Windows ISO's device already exists and has already
+                # been ejected (empty) by the Setup-complete callback handler,
+                # free to reuse. Best-effort, same as everything else here -
+                # if this genuinely isn't an ESXi host, or the mount call
+                # itself fails, install_vmware_tools below just won't find
+                # anything on D:/E:/F: and reports NOT_FOUND the same as
+                # always.
+                tools_cdrom_unit = None
                 try:
-                    await driver.detach_iso(deployment.vm_moref, tools_cdrom_unit)
-                    await log(db, deployment, "post_install", "VMware Tools installer media ejected")
+                    tools_cdrom_unit = await driver.mount_tools_installer(deployment.vm_moref)
                 except Exception as exc:  # noqa: BLE001 - best-effort, never worth failing a deployment over
                     await log(
                         db, deployment, "post_install",
-                        f"failed to eject VMware Tools installer media: {exc}", level=LogLevel.WARN,
+                        f"failed to mount VMware Tools installer: {exc}", level=LogLevel.WARN,
                     )
+
+                await log(db, deployment, "post_install", "installing VMware Tools")
+                tools_result = await _run_with_heartbeat(
+                    db, deployment, "post_install", "installing VMware Tools",
+                    client.install_vmware_tools,
+                )
+                if not tools_result.ok:
+                    await log(
+                        db, deployment, "post_install",
+                        f"VMware Tools install failed, continuing without it: {tools_result.stderr}",
+                        level=LogLevel.WARN,
+                    )
+                elif tools_result.installed:
+                    await log(db, deployment, "post_install", "VMware Tools installed, rebooting to apply driver updates")
+                    await _reboot_and_wait(
+                        db, deployment, "post_install", client,
+                        lambda: WinRMClient(guest_ip, template.local_admin_username, template.local_admin_password),
+                        "guest did not come back reachable after the VMware Tools reboot",
+                    )
+                else:
+                    await log(db, deployment, "post_install", "no VMware Tools installer found (not an ESXi host, or Tools ISO wasn't mounted)")
+
+                # Cleans up after itself either way - a completed
+                # deployment's VM should look the same whether or not Tools
+                # ever got installed, not carry mounted installer media
+                # around indefinitely just because this run happened to need
+                # it briefly. Only ejects if mount_tools_installer actually
+                # reported a unit above; nothing to eject otherwise.
+                if tools_cdrom_unit is not None:
+                    try:
+                        await driver.detach_iso(deployment.vm_moref, tools_cdrom_unit)
+                        await log(db, deployment, "post_install", "VMware Tools installer media ejected")
+                    except Exception as exc:  # noqa: BLE001 - best-effort, never worth failing a deployment over
+                        await log(
+                            db, deployment, "post_install",
+                            f"failed to eject VMware Tools installer media: {exc}", level=LogLevel.WARN,
+                        )
+            else:
+                await log(db, deployment, "post_install", "skipping VMware Tools (disabled for this template/deployment)")
 
             if deployment.ip_mode == IpMode.STATIC:
                 # Cross-check, not a source of truth: guest_ip above

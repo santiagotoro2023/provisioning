@@ -229,6 +229,7 @@ async def clone_template(
         domain_join_timing=source.domain_join_timing,
         enable_rdp=source.enable_rdp,
         install_windows_updates=source.install_windows_updates,
+        install_vmware_tools=source.install_vmware_tools,
         windows_features=list(source.windows_features),
         post_install_scripts=list(source.post_install_scripts),
         app_installs=list(source.app_installs),
@@ -294,6 +295,7 @@ async def export_template(
         domain_join_timing=template.domain_join_timing,
         enable_rdp=template.enable_rdp,
         install_windows_updates=template.install_windows_updates,
+        install_vmware_tools=template.install_vmware_tools,
         windows_features=template.windows_features,
         post_install_scripts=template.post_install_scripts,
     )
@@ -344,6 +346,7 @@ async def import_template(
         domain_join_timing=body.domain_join_timing,
         enable_rdp=body.enable_rdp,
         install_windows_updates=body.install_windows_updates,
+        install_vmware_tools=body.install_vmware_tools,
         windows_features=body.windows_features,
         post_install_scripts=[s.model_dump() for s in body.post_install_scripts],
     )
