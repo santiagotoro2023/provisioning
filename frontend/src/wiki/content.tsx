@@ -504,7 +504,12 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
             <P>
               Same upload mechanics as ISO assets: chunked from the browser, org-scoped or global (a
               global admin gets the same "Available to" choice, handy for an agent every customer
-              environment should get). Three fields beyond the file itself: a <strong>display name</strong>{" "}
+              environment should get) - scope is fixed at upload time, not changeable afterward, same as
+              templates and ISOs. Three fields beyond the file itself, all editable after upload without
+              re-uploading (a pencil icon on the App Assets table opens the same fields as upload minus
+              the file itself, which is immutable - a mistaken kind or a vendor changing their
+              silent-install flags doesn't mean deleting and re-uploading, which would also mean
+              re-editing every template that references it): a <strong>display name</strong>{" "}
               (independent of the uploaded filename, so "Datto RMM Agent" can be what operators see even
               if the file itself is <Code>AgentSetup_2024.1.exe</Code>), whether it's an <strong>MSI or
               EXE</strong>, and <strong>default silent-install arguments</strong> (e.g. <Code>/qn

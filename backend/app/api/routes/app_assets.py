@@ -12,7 +12,7 @@ from app.models.app_asset import AppAsset
 from app.models.deployment import Deployment
 from app.models.iso_asset import UploadStatus
 from app.models.user import Role, User
-from app.schemas.app_asset import AppAssetCreate, AppAssetRead
+from app.schemas.app_asset import AppAssetCreate, AppAssetRead, AppAssetUpdate
 from app.security.rbac import get_current_user, require_role
 from app.services import app_asset_upload, audit
 
@@ -104,6 +104,36 @@ async def finalize_app_asset_upload(
     audit.record(
         db, action="app_asset.finalize", target_type="app_asset", org_id=org_id,
         user_id=current_user.id, target_id=app_asset.id, detail={"size_bytes": size_bytes},
+    )
+    await db.commit()
+    await db.refresh(app_asset)
+    return app_asset
+
+
+@router.patch(
+    "/api/organizations/{org_id}/app-assets/{app_id}",
+    response_model=AppAssetRead,
+    dependencies=[Depends(require_role(Role.OPERATOR))],
+)
+async def update_app_asset(
+    org_id: uuid.UUID,
+    app_id: uuid.UUID,
+    body: AppAssetUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AppAsset:
+    """Metadata only (name/kind/default_install_args) - the uploaded file
+    itself is immutable, re-upload as a new asset to replace it. Doesn't
+    touch org_id: an asset's org-vs-global scope is fixed at creation,
+    matching how templates and ISOs both work, converting scope after
+    the fact isn't a thing this codebase supports for any asset type."""
+    app_asset = await _get_org_owned_app_asset(db, org_id, app_id)
+    updates = body.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(app_asset, field, value)
+    audit.record(
+        db, action="app_asset.update", target_type="app_asset", org_id=org_id,
+        user_id=current_user.id, target_id=app_asset.id, detail=updates,
     )
     await db.commit()
     await db.refresh(app_asset)
@@ -203,6 +233,27 @@ async def finalize_global_app_asset_upload(
     audit.record(
         db, action="app_asset.finalize_global", target_type="app_asset",
         user_id=current_user.id, target_id=app_asset.id, detail={"size_bytes": size_bytes},
+    )
+    await db.commit()
+    await db.refresh(app_asset)
+    return app_asset
+
+
+@router.patch(
+    "/api/app-assets/global/{app_id}",
+    response_model=AppAssetRead,
+    dependencies=[_admin_global],
+)
+async def update_global_app_asset(
+    app_id: uuid.UUID, body: AppAssetUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
+) -> AppAsset:
+    app_asset = await _get_global_app_asset(db, app_id)
+    updates = body.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(app_asset, field, value)
+    audit.record(
+        db, action="app_asset.update_global", target_type="app_asset",
+        user_id=current_user.id, target_id=app_asset.id, detail=updates,
     )
     await db.commit()
     await db.refresh(app_asset)

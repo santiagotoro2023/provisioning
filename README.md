@@ -426,7 +426,20 @@ org-scoped copy.
 ### App Assets
 - Org-scoped or global, same visibility/inheritance model and the same
   chunked-upload flow as ISO Assets (`POST /api/app-assets/global` and its
-  own chunk/finalize/delete routes for global ones, admin-only)
+  own chunk/finalize/delete routes for global ones, admin-only). Scope is
+  fixed at upload time (choose "This organization only" or "Every
+  organization (global)"), not changeable afterward - same as templates
+  and ISOs, nothing in this codebase supports migrating an asset between
+  org-scoped and global after creation
+- Editable after upload (`PATCH .../app-assets/{id}`, org-scoped and
+  global variants, operator+/admin same as everything else here): name,
+  kind, and default silent-install arguments can all be changed without
+  re-uploading. The uploaded file itself is immutable - a mistaken kind
+  or a vendor changing their silent-install flags doesn't require
+  deleting and re-uploading the asset (which would also mean re-editing
+  every template that references it), just editing the metadata; a
+  genuinely new file (a version bump) is still a new asset, re-upload as
+  one and repoint templates at it
 - An MSI or EXE installer (`kind`), a display name (independent of the
   uploaded filename, e.g. "Datto RMM Agent" vs. `AgentSetup_1.2.3.exe`),
   and default silent-install arguments (e.g. `/qn /norestart` for an MSI,
@@ -1333,6 +1346,7 @@ minimum effective role for the request's organization unless marked
 | GET/POST | `/api/organizations/{org_id}/app-assets` | readonly / operator | |
 | POST | `.../app-assets/{app_id}/chunk` | operator | raw body, one chunk |
 | POST | `.../app-assets/{app_id}/finalize` | operator | assembles + checksums |
+| PATCH | `.../app-assets/{app_id}` | operator | name/kind/default_install_args only |
 | DELETE | `.../app-assets/{app_id}` | operator | |
 | GET | `/api/deployments/{deployment_id}/app-assets/{app_id}/download?token=...` | none (deployment token) | guest-initiated, not a user session |
 | GET/POST | `/api/organizations/{org_id}/templates` | readonly / operator | |

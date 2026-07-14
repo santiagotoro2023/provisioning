@@ -1,4 +1,4 @@
-import { Trash2, UploadCloud } from "lucide-react";
+import { Pencil, Trash2, UploadCloud } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, getToken } from "../api/client";
 import Badge from "../components/Badge";
@@ -18,6 +18,7 @@ export default function AppAssets() {
   const [apps, setApps] = useState<AppAsset[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [editApp, setEditApp] = useState<AppAsset | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppAsset | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -99,15 +100,23 @@ export default function AppAssets() {
             header: "",
             render: (a) =>
               (a.org_id ? canManage && a.org_id === selectedOrgId : isGlobalAdmin) && (
-                <button
-                  className="flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
-                  onClick={() => {
-                    setDeleteError(null);
-                    setConfirmDelete(a);
-                  }}
-                >
-                  <Trash2 size={12} strokeWidth={1.75} />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                    onClick={() => setEditApp(a)}
+                  >
+                    <Pencil size={12} strokeWidth={1.75} />
+                  </button>
+                  <button
+                    className="flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                    onClick={() => {
+                      setDeleteError(null);
+                      setConfirmDelete(a);
+                    }}
+                  >
+                    <Trash2 size={12} strokeWidth={1.75} />
+                  </button>
+                </div>
               ),
           },
         ]}
@@ -121,6 +130,17 @@ export default function AppAssets() {
           onCreated={load}
           onDone={async () => {
             setShowUpload(false);
+            await load();
+          }}
+        />
+      )}
+
+      {editApp && (
+        <EditAppForm
+          app={editApp}
+          onClose={() => setEditApp(null)}
+          onDone={async () => {
+            setEditApp(null);
             await load();
           }}
         />
@@ -281,6 +301,79 @@ function UploadAppForm({
           </button>
           <button type="submit" className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={uploading || !file || !name}>
             {uploading ? `Uploading... ${progress}%` : "Upload"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function EditAppForm({ app, onClose, onDone }: { app: AppAsset; onClose: () => void; onDone: () => void }) {
+  const [name, setName] = useState(app.name);
+  const [kind, setKind] = useState<AppKind>(app.kind);
+  const [installArgs, setInstallArgs] = useState(app.default_install_args);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!name) return;
+    setError(null);
+    setSaving(true);
+    try {
+      const path = app.org_id ? `/organizations/${app.org_id}/app-assets/${app.id}` : `/app-assets/global/${app.id}`;
+      await api.patch(path, { name, kind, default_install_args: installArgs });
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <form onSubmit={onSubmit} className="w-96 rounded-lg border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900 p-5 shadow-sm">
+        <h2 className="mb-4 text-sm font-semibold">Edit App Asset</h2>
+        <p className="mb-3 text-xs text-neutral-500">
+          File: <code>{app.filename}</code> ({app.org_id ? "org-scoped" : "global"}) - re-upload as a new asset to
+          replace the file itself.
+        </p>
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Display name</label>
+        <input
+          className="mb-3 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Kind</label>
+            <Select
+              className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as AppKind)}
+            >
+              <option value="exe">EXE</option>
+              <option value="msi">MSI</option>
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Default silent-install args</label>
+            <input
+              className="w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
+              value={installArgs}
+              onChange={(e) => setInstallArgs(e.target.value)}
+              placeholder={kind === "msi" ? "/qn /norestart" : "/S"}
+            />
+          </div>
+        </div>
+        {error && <div className="mb-3 text-xs text-red-600">{error}</div>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button type="submit" className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={saving || !name}>
+            {saving ? "Saving..." : "Save"}
           </button>
         </div>
       </form>

@@ -13,6 +13,12 @@ class AppAssetCreate(BaseModel):
     default_install_args: str = ""
 
 
+class AppAssetUpdate(BaseModel):
+    name: str | None = None
+    kind: AppKind | None = None
+    default_install_args: str | None = None
+
+
 class AppAssetRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
