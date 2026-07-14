@@ -919,7 +919,20 @@ pending → creating_vm → booting → installing_os → post_install → confi
   builds." `hypervisors/defaults.py`'s `generate_mac_address` assigns a
   MAC explicitly to the VM's NIC at creation time (rather than letting the
   hypervisor generate one), and that same value goes into `Identifier`
-  here - deterministic, no enumeration-order guesswork left
+  here - deterministic, no enumeration-order guesswork left. Element
+  order inside `_static_network.xml.j2` is load-bearing, not stylistic:
+  Microsoft's own schema requires `Interface`'s children in the exact
+  order `Ipv4Settings`, `Identifier`, `UnicastIpAddresses`, `Routes`
+  (confirmed against learn.microsoft.com's own component reference,
+  which explicitly warns about this), and `Route`'s children in the
+  exact order `Identifier`, `Metric`, `NextHopAddress`, `Prefix`.
+  Getting either wrong doesn't raise a helpful XML error, Setup just
+  fails specialize-pass processing with a generic "Windows installieren:
+  Die Installation konnte nicht abgeschlossen werden" dialog and no
+  other detail - confirmed the hard way before this file's element order
+  was fixed against a real, working example (cloudfoundry-community's
+  `windows-stemcell-concourse` `autounattend.xml`) and Microsoft's own
+  documented ordering
 - Post-install phase (over WinRM once a guest address is known -
   `deployment.static_ip` directly for a static deployment, otherwise
   `deployment.guest_reported_ip`, captured from the callback request's own

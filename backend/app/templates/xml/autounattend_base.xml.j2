@@ -39,13 +39,6 @@
             <ComputerName>{{ deployment.hostname }}</ComputerName>
             <TimeZone>{{ template.timezone }}</TimeZone>
         </component>
-        <!-- Microsoft-Windows-International-Core-WinPE (windowsPE pass,
-             above) only governs Setup's own UI/keyboard while it's
-             running; it has no effect on the installed OS. This is the
-             separate, differently-named component that sets the actual
-             deployed system's default locale/keyboard for the built-in
-             Administrator and every new user, so the machine is right in
-             daily use even if Setup's own screen ever misbehaves. -->
         <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
             <InputLocale>{{ input_locale }}</InputLocale>
             <SystemLocale>{{ template.locale }}</SystemLocale>
@@ -57,14 +50,6 @@
 {% include "_specialize_enable_winrm.xml.j2" %}
             </RunSynchronous>
         </component>
-        <!-- VMware Tools is deliberately NOT installed here during the
-             specialize pass: an earlier attempt at that (a
-             RunSynchronousCommand pair, since removed) crashed Setup
-             outright on a real deployment ("the computer was unexpectedly
-             restarted"). It's installed post-install instead, over WinRM
-             once the OS is fully up - see WinRMClient.install_vmware_tools
-             and provision.py's run_post_install, which runs it as the very
-             first post-install step, before roles/features/apps. -->
 {% if deployment.ip_mode == "static" and deployment.static_ip and static_prefix %}
 {% include "_static_network.xml.j2" %}
 {% endif %}
@@ -75,15 +60,6 @@
     <settings pass="oobeSystem">
         <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
             <UserAccounts>
-                <!-- Always sets the built-in Administrator's password: with
-                     custom_admin_enabled off, that's the account actually
-                     used going forward (local_admin_username is just
-                     "Administrator" too, see templates.py). With it on,
-                     Setup still requires this account to have a password to
-                     exist momentarily, but it's disabled by
-                     _first_logon_commands.xml.j2 within seconds of first
-                     boot, and the LocalAccounts entry below is the account
-                     actually meant to be used instead. -->
                 <AdministratorPassword>
                     <Value>{{ template.local_admin_password }}</Value>
                     <PlainText>true</PlainText>
@@ -103,36 +79,6 @@
                 </LocalAccounts>
 {% endif %}
             </UserAccounts>
-            <!-- The declarative <AutoLogon> element is deliberately absent
-                 here, permanently at this point: it, and separately a
-                 specialize-pass RunSynchronousCommand writing the exact
-                 same Winlogon registry values via reg.exe, each
-                 independently broke Setup outright with the identical
-                 WINDEPLOY 0x80220005 failure - different mechanisms, same
-                 registry surface (HKLM\...\Winlogon), same result, which
-                 is why _specialize_enable_winrm.xml.j2 (specialize pass)
-                 gets unattended WinRM access a different way now, one
-                 that never touches Winlogon/AutoAdminLogon at all: no
-                 login is needed for the rest of the pipeline to run, but
-                 nobody is auto-logged-in at the console either, that's
-                 not the same thing. See that file's own comment for the
-                 full reasoning.
-
-                 ProtectYourPC/NetworkLocation/HideOEMRegistrationScreen
-                 are also still absent: tried once alongside the
-                 declarative <AutoLogon> element (inconclusive - removing
-                 them alone didn't fix that failure, so they were never
-                 confirmed involved either way) and once alongside the
-                 reg.exe Winlogon write (Setup failed the same WINDEPLOY
-                 way again, more suggestive this time since specialize had
-                 completed cleanly first), rolled back both times without
-                 ever being tested against a deployment that actually
-                 completes. Worth retrying now that WinRM access no longer
-                 depends on anything Winlogon-related at all, but not
-                 attempted yet - the diagnostic-data/network-location OOBE
-                 prompts these suppress are cosmetic (only visible if a
-                 human does log in manually), unlike the login requirement
-                 this file's WinRM change actually fixes. -->
             <OOBE>
                 <HideEULAPage>true</HideEULAPage>
                 <HideLocalAccountScreen>true</HideLocalAccountScreen>

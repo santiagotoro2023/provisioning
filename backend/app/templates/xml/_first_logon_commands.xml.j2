@@ -1,22 +1,9 @@
-<!-- Defense-in-depth now, not the primary path: _specialize_enable_winrm.xml.j2
-     (specialize pass) is what actually gets WinRM up without anyone
-     logging in. This still runs identically if a human does log in
-     manually (troubleshooting, or if that specialize-pass step somehow
-     didn't take for a given deployment) - redundant with it in the
-     common case, harmless either way. -->
 <SynchronousCommand wcm:action="add">
     <Order>1</Order>
     <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Enable-PSRemoting -Force; New-NetFirewallRule -DisplayName 'DeployCore WinRM' -Direction Inbound -Protocol TCP -LocalPort 5985 -Action Allow"</CommandLine>
     <Description>Enable WinRM for post-install configuration</Description>
 </SynchronousCommand>
 {% if template.custom_admin_enabled %}
-<!-- Without this, UAC's remote-token filtering only exempts the
-     built-in Administrator (RID 500), so every post-install WinRM
-     command would silently fail for the custom admin account even
-     though it's in Administrators. Kept short: Description has a real
-     length limit in this schema - a long explanatory paragraph here
-     once made oobeSystem reject the whole answer file as invalid
-     (0x80220005), so the "why" lives in this comment instead. -->
 <SynchronousCommand wcm:action="add">
     <Order>2</Order>
     <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name LocalAccountTokenFilterPolicy -PropertyType DWord -Value 1 -Force"</CommandLine>
@@ -29,10 +16,6 @@
     <Description>Notify DeployCore that OS install is complete</Description>
 </SynchronousCommand>
 {% if template.custom_admin_enabled %}
-<!-- Runs after the callback (Order 3) on purpose: a guest-side quirk
-     from disabling this account can then never prevent DeployCore from
-     learning Setup finished. Description kept short for the same reason
-     as Order 2 above - see that comment. -->
 <SynchronousCommand wcm:action="add">
     <Order>4</Order>
     <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Disable-LocalUser -Name 'Administrator'"</CommandLine>
