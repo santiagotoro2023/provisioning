@@ -56,6 +56,16 @@ class HypervisorDriver(ABC):
     async def detach_iso(self, vm_ref: str, unit: int) -> None: ...
 
     @abstractmethod
+    async def mount_tools_installer(self, vm_ref: str) -> int | None:
+        """Mounts this hypervisor's own bundled guest-tools installer ISO
+        onto whichever CD-ROM device is available, returning that
+        device's unit number (for a later detach_iso once installation
+        finishes, keeping the VM clean rather than leaving Tools media
+        mounted indefinitely) or None if nothing changed. Called from
+        post-install, not VM creation - see ESXiDriver's implementation
+        for why."""
+
+    @abstractmethod
     async def attach_floppy(self, vm_ref: str, floppy_path: str, unit: int = 0) -> None:
         """Used for the answer-file floppy specifically, see
         floppy_builder.py's docstring for why a floppy rather than a

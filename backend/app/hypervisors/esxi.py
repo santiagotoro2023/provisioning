@@ -124,27 +124,6 @@ class ESXiDriver(HypervisorDriver):
                 nic_spec.device.addressType = "manual"
                 nic_spec.device.macAddress = spec.mac_address
 
-            # A dedicated, empty CD-ROM device for MountToolsInstaller()
-            # below - confirmed (Broadcom KB, vix error 21002 "This
-            # virtual machine does not have a CD-ROM drive configured")
-            # that call requires an existing CD/DVD device to attach the
-            # Tools ISO to, it does not create one itself, and silently
-            # failed on every deployment before this: the Windows/VirtIO
-            # ISOs (attach_iso, run later in the pipeline once uploaded)
-            # are the only CD-ROM devices this VM ever had, and neither
-            # exists yet at VM-creation time when MountToolsInstaller()
-            # was being called. controllerKey 201, not 200 (which
-            # attach_iso's WINDOWS_ISO_UNIT/VIRTIO_ISO_UNIT use): ESXi's
-            # default two built-in IDE controllers are 200 and 201, and
-            # 200 alone (2 units) is already fully claimed by those two.
-            cdrom_spec = vim.vm.device.VirtualDeviceSpec()
-            cdrom_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.add
-            cdrom_spec.device = vim.vm.device.VirtualCdrom()
-            cdrom_spec.device.unitNumber = 0
-            cdrom_spec.device.controllerKey = 201
-            cdrom_spec.device.backing = vim.vm.device.VirtualCdrom.RemotePassthroughBackingInfo()
-            cdrom_spec.device.connectable = vim.vm.device.VirtualDevice.ConnectInfo()
-
             config = vim.vm.ConfigSpec()
             config.name = spec.name
             config.numCPUs = spec.cpu_count
@@ -178,7 +157,7 @@ class ESXiDriver(HypervisorDriver):
             config.files = vim.vm.FileInfo(
                 vmPathName=f"[{datastore_name}] {spec.name}/{spec.name}.vmx"
             )
-            config.deviceChange = [controller, disk_spec, nic_spec, cdrom_spec]
+            config.deviceChange = [controller, disk_spec, nic_spec]
 
             task = vm_folder.CreateVM_Task(config=config, pool=resource_pool)
             # WaitForTask's return value is the task's State enum
@@ -190,8 +169,8 @@ class ESXiDriver(HypervisorDriver):
 
             # Best-effort, separate reconfigure so a failure here can never
             # affect VM creation itself: during Setup itself (before
-            # VMware Tools is installed - see MountToolsInstaller below,
-            # which only finishes after Setup completes and the guest
+            # VMware Tools is installed - see mount_tools_installer, called
+            # from post-install, well after Setup completes and the guest
             # reboots into it), a fresh Windows guest only has the
             # default PS/2 mouse, which the ESXi/vSphere web console can't
             # track properly, the cursor doesn't reliably show up or move
@@ -209,22 +188,6 @@ class ESXiDriver(HypervisorDriver):
                 WaitForTask(vm.ReconfigVM_Task(spec=vim.vm.ConfigSpec(deviceChange=[usb_spec])))
             except Exception:  # noqa: BLE001 - cosmetic, never worth failing VM creation over
                 logger.exception("esxi: failed to add a USB controller to %s, console mouse may not work", spec.name)
-
-            # Also best-effort, same reasoning: mounts ESXi's own bundled
-            # Tools installer ISO onto a CD-ROM device it manages itself
-            # (no need to track a unit number the way the Windows/VirtIO
-            # ISOs are), so it's already present by the time post-install
-            # looks for it over WinRM (see WinRMClient.install_vmware_tools,
-            # run as the first step of provision.py's run_post_install).
-            # VMware Tools being installed is what makes get_guest_ip/the
-            # guest-ops surface actually work for a DHCP deployment -
-            # without it, only a static deployment (which already knows its
-            # own IP declaratively) can be reached at all without a human
-            # logging in at the console.
-            try:
-                WaitForTask(vm.MountToolsInstaller())
-            except Exception:  # noqa: BLE001 - never worth failing VM creation over
-                logger.exception("esxi: failed to mount the VMware Tools installer on %s", spec.name)
 
             return vm._moId
         finally:
@@ -372,6 +335,47 @@ class ESXiDriver(HypervisorDriver):
 
     async def detach_iso(self, vm_ref: str, unit: int) -> None:
         await asyncio.to_thread(self._detach_iso_sync, vm_ref, unit)
+
+    def _mount_tools_installer_sync(self, vm_ref: str) -> int | None:
+        """Called from post-install (see provision.py's run_post_install),
+        not at VM creation: `MountToolsInstaller()` requires an *existing*
+        CD/DVD device to attach the Tools ISO to (confirmed against
+        Broadcom's own KB, vix error 21002 "This virtual machine does not
+        have a CD-ROM drive configured") - it does not create one itself.
+        Calling this here, rather than adding a dedicated CD-ROM device
+        just for this at VM-creation time, reuses whichever CD-ROM device
+        the Windows ISO was attached to (attach_iso, WINDOWS_ISO_UNIT):
+        by the time post-install runs, the Setup-complete callback has
+        already ejected it (see _eject_install_media), so it's sitting
+        there existing, empty, and free for this to claim - no extra
+        virtual hardware left on the VM permanently, only for as long as
+        Tools installation actually needs it (detach_iso, called with the
+        unit this returns once install_vmware_tools finishes and the
+        guest reboots, ejects it again).
+
+        Returns the unit number of whichever CD-ROM device now carries
+        the Tools ISO (found by its backing, not assumed to be
+        WINDOWS_ISO_UNIT - nothing in the vSphere API contract guarantees
+        which existing device it picks), or None if it didn't change any
+        - the caller treats that the same as "not an ESXi host" already
+        did: best-effort, no VMware Tools this run, nothing to eject
+        afterward either."""
+        service_instance = self._connect_sync()
+        try:
+            vm = self._find_vm_sync(service_instance, vm_ref)
+            WaitForTask(vm.MountToolsInstaller())
+            vm = self._find_vm_sync(service_instance, vm_ref)
+            for device in vm.config.hardware.device:
+                if isinstance(device, vim.vm.device.VirtualCdrom) and isinstance(
+                    device.backing, vim.vm.device.VirtualCdrom.IsoBackingInfo
+                ):
+                    return device.unitNumber
+            return None
+        finally:
+            connect.Disconnect(service_instance)
+
+    async def mount_tools_installer(self, vm_ref: str) -> int | None:
+        return await asyncio.to_thread(self._mount_tools_installer_sync, vm_ref)
 
     def _set_boot_order_sync(self, vm_ref: str, device_order: list[str]) -> None:
         service_instance = self._connect_sync()
