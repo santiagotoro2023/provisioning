@@ -918,7 +918,9 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
                   floppy alike (drives kept, emptied — ESXi rejects actually removing a floppy device
                   while the VM is still powered on, which this always runs while it is), and deletes the
                   per-deployment answer-file floppy image from the datastore, all best-effort and never
-                  worth failing an otherwise-successful deployment over. Nothing from here on (post-install
+                  worth failing an otherwise-successful deployment over. The floppy device itself does get
+                  fully removed later, not left ejected forever — see the VMware Tools reboot further down,
+                  the one point in the pipeline the VM is genuinely powered off. Nothing from here on (post-install
                   runs entirely over WinRM) needs any of it. The wait for that callback isn't
                   all-or-nothing, and in the common, fully-unattended case (see "no human needs to log in"
                   above) it's actually the secondary path, not the primary one: every 30 seconds or so
@@ -1426,14 +1428,32 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               closed that particular gap. The installer runs with{" "}
               <Code>REBOOT=ReallySuppress</Code>: a real, documented VMXNET3 interaction means its network
               driver update needs an actual restart to take effect cleanly, or the guest loses network
-              access immediately ("RPC service unavailable"). <Code>run_post_install</Code> does exactly
-              one controlled reboot right after, but only when something was actually installed — if the
-              ISO was never mounted (a non-ESXi host, say), it logs that and moves straight on, always
-              best-effort, never worth failing a deployment over. A static deployment doesn't need any of
-              this for IP discovery (its address is already known declaratively), but gets Tools installed
-              anyway — the static-IP cross-check that runs right after benefits from Tools already being
-              up, comparing the guest-reported address against the configured static one and logging a{" "}
-              <Code>WARN</Code> (never a hard failure) if they don't match.
+              access immediately ("RPC service unavailable"). <Code>run_post_install</Code> restarts right
+              after, but only when something was actually installed — if the ISO was never mounted (a
+              non-ESXi host, say), it logs that and moves straight on, always best-effort, never worth
+              failing a deployment over. A static deployment doesn't need any of this for IP discovery (its
+              address is already known declaratively), but gets Tools installed anyway — the static-IP
+              cross-check that runs right after benefits from Tools already being up, comparing the
+              guest-reported address against the configured static one and logging a <Code>WARN</Code>{" "}
+              (never a hard failure) if they don't match.
+            </P>
+            <P>
+              That restart is a full <strong>shutdown, floppy removal, and power-on</strong> through the
+              hypervisor, not a guest-initiated <Code>shutdown.exe /r</Code> like every other reboot in this
+              pipeline — since a restart is already happening here regardless, it's also the one point the
+              answer-file floppy device can actually be <em>removed</em> instead of just ejected.{" "}
+              <Code>HypervisorDriver.remove_floppy</Code> only works while the VM is genuinely powered off
+              (<Code>InvalidPowerState</Code> otherwise, the same constraint <Code>detach_floppy</Code>'s
+              own eject-not-remove approach exists for elsewhere), and this is the only reboot in the whole
+              pipeline that's a real hypervisor power cycle rather than a restart from inside the guest.{" "}
+              <Code>WinRMClient.shutdown()</Code> (<Code>shutdown.exe /s</Code>, not <Code>/r</Code>)
+              triggers it; the worker then polls the hypervisor's own power state until it actually reports{" "}
+              <Code>poweredOff</Code> (bounded — if it never gets there, floppy removal is skipped and the
+              VM is powered back on regardless rather than left off indefinitely), removes the floppy, then
+              powers back on and waits for the guest to settle the exact same way every other reboot in this
+              pipeline does. Floppy removal itself is best-effort: the device was already harmless (ejected,
+              empty, its actual answer-file image already deleted from the datastore) either way, a failure
+              here is logged and moved past rather than failing an otherwise fully-successful deployment.
             </P>
             <P>
               A template's <strong>custom admin account</strong> toggle (Templates page, off by default)

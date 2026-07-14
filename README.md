@@ -926,11 +926,34 @@ pending → creating_vm → booting → installing_os → post_install → confi
   runs it with `REBOOT=ReallySuppress` - a real, documented VMXNET3
   interaction means the network driver update needs an actual restart to
   take effect cleanly, or the guest loses network access immediately
-  ("RPC service unavailable"). `run_post_install` does exactly one
-  controlled reboot right after, but only when something was actually
-  installed; if the ISO was never mounted (a non-ESXi host, say), it logs
-  that and moves on - always best-effort, never worth failing a
-  deployment over. This is what makes a **DHCP** deployment's guest IP
+  ("RPC service unavailable"). `run_post_install` restarts right after,
+  but only when something was actually installed; if the ISO was never
+  mounted (a non-ESXi host, say), it logs that and moves on - always
+  best-effort, never worth failing a deployment over.
+
+  That restart is a full **shutdown + floppy removal + power-on**
+  through the hypervisor (`_shutdown_remove_floppy_and_power_on`), not
+  a guest-initiated `shutdown.exe /r` like every other reboot in this
+  pipeline: since a restart is already happening here regardless, it's
+  also the one point the answer-file floppy device can actually be
+  *removed* rather than just ejected - `HypervisorDriver.remove_floppy`
+  only works while the VM is genuinely powered off (`InvalidPowerState`
+  otherwise, the same constraint `detach_floppy`'s own eject-not-remove
+  approach exists for elsewhere), and this is the only reboot in the
+  pipeline that's a real power cycle rather than a restart from inside
+  the guest. `WinRMClient.shutdown()` (`shutdown.exe /s`, not `/r`)
+  triggers it; the worker then polls the hypervisor's own power state
+  until it actually reports `poweredOff` (bounded, `SHUTDOWN_MAX_ATTEMPTS`
+  - if it never gets there, floppy removal is skipped and the VM is
+  powered back on regardless, rather than left off indefinitely),
+  removes the floppy, then powers back on and waits for the guest the
+  same way every other reboot does (`_wait_for_guest_settled`, the
+  shared tail both this and the plain guest-initiated reboots use).
+  Floppy removal itself is best-effort: the device was already harmless
+  (ejected, empty, its actual answer-file image already deleted from the
+  datastore) either way, a failure here is logged and moved past rather
+  than failing an otherwise fully-successful deployment. This is what
+  makes a **DHCP** deployment's guest IP
   discoverable at all: `HypervisorDriver.get_guest_ip()` has nothing to
   report without Tools present, and a real deployment previously spun for
   the full `WINRM_REACHABILITY_MAX_ATTEMPTS` on exactly that gap (see the
@@ -967,7 +990,10 @@ pending → creating_vm → booting → installing_os → post_install → confi
   removing a floppy device while the VM is still powered on, which this
   always runs while it is), and deletes the per-deployment answer-file
   floppy image from the datastore, all best-effort, never worth failing
-  an otherwise-successful deployment over
+  an otherwise-successful deployment over. The floppy *device* itself
+  does get fully removed later, not just left ejected forever - see the
+  VMware Tools reboot below, the one point in the pipeline the VM is
+  genuinely powered off
 - Locale/keyboard are set in two places in the answer file:
   `Microsoft-Windows-International-Core-WinPE` (windowsPE pass, Setup's own
   UI only) and `Microsoft-Windows-International-Core` (specialize pass, the
