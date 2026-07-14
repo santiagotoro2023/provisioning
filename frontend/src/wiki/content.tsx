@@ -308,6 +308,19 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               good, though any deployment they created is kept, just no longer attributed to anyone. You
               can't delete your own account this way, only another admin can.
             </P>
+            <P>
+              Two account-recovery actions live in the Edit form and the row actions respectively:{" "}
+              <strong>resetting a user's password</strong> (the Edit form's "New password" field, leave
+              blank to keep the current one - no confirmation from the user needed, an admin can just set a
+              new one directly) and <strong>Reset 2FA</strong> (shown only when the user actually has 2FA
+              enabled) for someone who's lost their authenticator device - unlike the self-service 2FA
+              disable on the Account page, this needs no code from the user at all, since an admin trusted
+              to reset their password is equally trusted to clear their 2FA. Resetting 2FA doesn't revoke
+              any of that user's active sessions (only future logins go through 2FA again), but a password
+              reset is worth following with <strong>Force logout</strong> (see "Sessions and signing out
+              remotely") if you want to be sure whoever had the old password is locked out immediately
+              rather than staying signed in on whatever session they already had open.
+            </P>
           </>
         ),
       },
@@ -337,8 +350,10 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
             <P>
               Once enabled, every future login asks for username + password first, then a second screen
               for the current code. To turn it off, go back to the same panel and enter a current code to
-              disable it, there's no way to remove 2FA from your own account without one (an admin can
-              still reset your password, but 2FA itself is self-service only today).
+              disable it. If you've lost your authenticator device and can't produce a code at all, a
+              global admin can reset 2FA on your account from the Users page (no code required from you
+              for that - see "Users, roles, and permissions" below) - the same account-recovery role they
+              already have for password resets.
             </P>
           </>
         ),
@@ -361,6 +376,10 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               items={[
                 <>Account page → <strong>Sign out everywhere</strong>: invalidates every active login for
                   your own account, including the one you're currently using.</>,
+                <>Account page → <strong>Change password</strong>: requires your current password, then
+                  invalidates every active login the same way "Sign out everywhere" does - including the
+                  one making the change - and sends you back to the login page to sign in with the new
+                  one.</>,
                 <>Users page → <strong>Force logout</strong> on any user (global admin only): immediately
                   invalidates every active session for that account, useful right after a password reset
                   or when someone leaves.</>,

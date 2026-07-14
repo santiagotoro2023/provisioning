@@ -292,7 +292,17 @@ org-scoped copy.
 ### Users
 - Global admin only: list, create (username/password/display name/optional
   email/global role), edit (display name/global role/active flag/password),
-  force-logout (revokes every active session for that user immediately)
+  force-logout (revokes every active session for that user immediately),
+  reset 2FA (shown only when the user has 2FA enabled - unlike the
+  self-service `/auth/2fa/disable`, no code from the user is required, an
+  admin who can already reset that user's password is equally trusted to
+  clear it. Account-recovery path for someone who's lost their
+  authenticator device; doesn't touch active sessions, only future logins)
+- Self-service password change (Account page): requires the current
+  password, unlike an admin's reset above. Revokes every session for the
+  account afterward, same as "Sign out everywhere" - the frontend clears
+  local state and redirects to the login page right after, since the
+  session that just made the request no longer works either
 - Access is managed inline from the Users list: an "Assign..." dropdown
   next to each user's existing roles offers every organization they don't
   already have a role in, plus a "Global (all organizations)" option at
@@ -1374,6 +1384,7 @@ minimum effective role for the request's organization unless marked
 | POST | `/api/auth/2fa/setup` | authenticated | returns a new secret + otpauth URL |
 | POST | `/api/auth/2fa/confirm` | authenticated | verifies a code, enables 2FA |
 | POST | `/api/auth/2fa/disable` | authenticated | verifies a code, disables 2FA |
+| POST | `/api/auth/change-password` | authenticated | requires current password; revokes every session for the caller |
 | GET | `/api/auth/me` | authenticated | current user + org-role map |
 | GET/POST | `/api/organizations` | readonly / admin (global) | |
 | GET/PATCH | `/api/organizations/{org_id}` | readonly / admin | |
@@ -1383,6 +1394,7 @@ minimum effective role for the request's organization unless marked
 | DELETE | `/api/users/{user_id}` | admin (global) | permanent; `400` for your own account; deployments they created are kept, unattributed |
 | POST/DELETE | `/api/users/{user_id}/org-roles[/{org_id}]` | admin (global) | |
 | POST | `/api/users/{user_id}/force-logout` | admin (global) | revokes every session for that user |
+| POST | `/api/users/{user_id}/2fa/disable` | admin (global) | no code required, unlike the self-service version; doesn't revoke sessions |
 | PUT/DELETE | `/api/users/me/avatar` | authenticated | multipart upload; PNG/JPEG, 2 MB max |
 | GET | `/api/users/{user_id}/avatar` | authenticated | any user's profile picture, `404` if unset |
 | GET/POST | `/api/organizations/{org_id}/hypervisors` | readonly / admin | |
