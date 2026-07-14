@@ -31,6 +31,16 @@ export default function DeploymentDetail() {
   const [powerState, setPowerState] = useState<string | null>(null);
   const [powerBusy, setPowerBusy] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
+  // Bumped on every retry to force the event-stream effect below to
+  // reopen a fresh connection: the backend stream (see deployment_events)
+  // deliberately closes for good the first time it sees a transition
+  // into completed/failed, so a retry moving the deployment back out of
+  // failed has no live connection left to notice anything happening
+  // unless a new one opens. streamSince is the cutoff passed to that new
+  // connection so it doesn't replay (and double-append) log lines
+  // loadStatic() just fetched fresh via REST.
+  const [streamKey, setStreamKey] = useState(0);
+  const [streamSince, setStreamSince] = useState<string | null>(null);
 
   async function loadPowerState(orgId: string, deploymentId: string) {
     const { power_state } = await api.get<{ power_state: string | null }>(
@@ -63,7 +73,8 @@ export default function DeploymentDetail() {
     controllerRef.current = controller;
 
     async function streamEvents() {
-      const res = await fetch(`/api/organizations/${selectedOrgId}/deployments/${id}/events`, {
+      const query = streamSince ? `?since=${encodeURIComponent(streamSince)}` : "";
+      const res = await fetch(`/api/organizations/${selectedOrgId}/deployments/${id}/events${query}`, {
         headers: { Authorization: `Bearer ${getToken()}` },
         signal: controller.signal,
       });
@@ -96,7 +107,8 @@ export default function DeploymentDetail() {
 
     streamEvents().catch(() => undefined);
     return () => controller.abort();
-  }, [selectedOrgId, id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedOrgId, id, streamKey]);
 
   if (!deployment) return <p className="text-sm text-neutral-500">Loading...</p>;
 
@@ -106,6 +118,17 @@ export default function DeploymentDetail() {
   const canDeleteDeployment = roleAtLeast(effectiveRole(selectedOrgId), "admin");
   const currentStageIndex = STAGES.indexOf(deployment.state);
 
+  function reopenEventStream() {
+    // See the streamKey/streamSince declarations above: the previous
+    // stream connection already closed for good (it saw this deployment
+    // reach `failed`), so nothing further would ever show up on this
+    // page - now stuck at "failed" forever on screen, indistinguishable
+    // from the retry having silently done nothing - without forcing a
+    // fresh one to open.
+    setStreamSince(new Date().toISOString());
+    setStreamKey((k) => k + 1);
+  }
+
   async function retry() {
     if (!selectedOrgId || !id) return;
     setRetryError(null);
@@ -113,6 +136,7 @@ export default function DeploymentDetail() {
       await api.post(`/organizations/${selectedOrgId}/deployments/${id}/retry`);
       setConfirmRetry(false);
       await loadStatic();
+      reopenEventStream();
     } catch (err) {
       setConfirmRetry(false);
       setRetryError(err instanceof ApiError ? err.message : "Failed to retry the deployment.");
@@ -126,6 +150,7 @@ export default function DeploymentDetail() {
       await api.post(`/organizations/${selectedOrgId}/deployments/${id}/retry-post-install`);
       setConfirmRetryPostInstall(false);
       await loadStatic();
+      reopenEventStream();
     } catch (err) {
       setConfirmRetryPostInstall(false);
       setRetryError(err instanceof ApiError ? err.message : "Failed to retry post-install.");

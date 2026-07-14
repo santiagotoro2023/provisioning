@@ -1,3 +1,4 @@
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.deployment import (
@@ -63,9 +64,15 @@ async def retry_deployment(db: AsyncSession, deployment: Deployment) -> None:
     """Full retry from `pending`, safe by construction: DeployCore never
     reuses a partially-created VM, so there's nothing stale to collide with
     (the pipeline's own cleanup step deletes any partial VM before marking
-    a deployment failed)."""
+    a deployment failed). Clears prior log lines (not the state-transition
+    history below, which is the actual audit trail and keeps every past
+    attempt visible as its own "-> pending" row) - explicitly requested:
+    without it, a retried deployment's log just kept appending onto the
+    previous failed attempt's lines with nothing marking where one ended
+    and the next began, reading like the retry hadn't done anything."""
     if deployment.state != DeploymentState.FAILED:
         raise InvalidTransition("only a failed deployment can be retried")
+    await db.execute(delete(DeploymentLogLine).where(DeploymentLogLine.deployment_id == deployment.id))
     db.add(
         DeploymentStateTransition(
             deployment_id=deployment.id,
@@ -92,9 +99,13 @@ async def retry_post_install(db: AsyncSession, deployment: Deployment) -> None:
     back to INSTALLING_OS, not POST_INSTALL directly, because
     run_post_install's own first action is the INSTALLING_OS ->
     POST_INSTALL transition - this just re-enters the pipeline at the
-    same point run_deployment normally hands off to it."""
+    same point run_deployment normally hands off to it. Clears prior log
+    lines, same reasoning as retry_deployment above - the state-transition
+    history (a separate table, untouched) is what keeps the failed
+    attempt itself visible."""
     if deployment.state != DeploymentState.FAILED or not deployment.vm_moref:
         raise InvalidTransition("only a failed deployment with a preserved VM can retry post-install")
+    await db.execute(delete(DeploymentLogLine).where(DeploymentLogLine.deployment_id == deployment.id))
     db.add(
         DeploymentStateTransition(
             deployment_id=deployment.id,

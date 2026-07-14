@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import json
 import secrets
 import uuid
@@ -457,12 +458,24 @@ async def delete_deployment(
     await db.commit()
 
 
-async def _event_stream(deployment_id: uuid.UUID, request: Request):
+async def _event_stream(deployment_id: uuid.UUID, request: Request, since: datetime.datetime | None = None):
     """Owns its own DB session rather than reusing the request's, a
     `Depends(get_db)` session is torn down once the endpoint function
-    returns, before a StreamingResponse body finishes sending."""
-    last_log_ts = None
-    last_transition_ts = None
+    returns, before a StreamingResponse body finishes sending.
+
+    `since` lets a client that already has everything up to a known
+    timestamp (the frontend, reopening this stream after a retry - see
+    `retry-post-install`'s docs) skip straight to new events instead of
+    replaying the whole history: this stream deliberately closes for
+    good the moment it observes a transition into COMPLETED/FAILED
+    (below), so a retry that moves a deployment back out of `failed`
+    has no live connection left to notice it happened at all unless the
+    frontend opens a new one - without `since`, that new connection
+    would replay every log line/transition from the beginning, which
+    the frontend already has via its own initial REST fetch, appending
+    every one of them a second time."""
+    last_log_ts = since
+    last_transition_ts = since
     async with SessionLocal() as db:
         while True:
             if await request.is_disconnected():
@@ -499,7 +512,8 @@ async def _event_stream(deployment_id: uuid.UUID, request: Request):
     dependencies=[Depends(require_role(Role.READONLY))],
 )
 async def deployment_events(
-    org_id: uuid.UUID, deployment_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)
+    org_id: uuid.UUID, deployment_id: uuid.UUID, request: Request,
+    since: datetime.datetime | None = None, db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     await _get_org_deployment(db, org_id, deployment_id)
-    return StreamingResponse(_event_stream(deployment_id, request), media_type="text/event-stream")
+    return StreamingResponse(_event_stream(deployment_id, request, since), media_type="text/event-stream")
