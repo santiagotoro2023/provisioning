@@ -807,22 +807,34 @@ pending → creating_vm → booting → installing_os → post_install → confi
   call after Setup has already finished and the OS is fully up carries
   none of that risk, so that file is gone and the same install now runs
   through the same channel already proven for `Install-WindowsFeature`.
-  It scans for `setup64.exe` on the CD-ROM `esxi.py`'s `create_vm` mounts
-  via `vm.MountToolsInstaller()` at VM creation. That call requires an
+  Right before that, `HypervisorDriver.mount_tools_installer` (ESXi:
+  `vm.MountToolsInstaller()`) mounts the Tools ISO, itself called from
+  post-install rather than at VM creation. That call requires an
   *existing* CD/DVD device to attach the Tools ISO to - confirmed
   against Broadcom's own KB (vix error 21002, "This virtual machine does
-  not have a CD-ROM drive configured") after it silently failed on every
-  deployment for a while: the Windows and VirtIO ISOs are attached later
-  in the pipeline, once uploaded, so neither CD-ROM device existed yet
-  at VM-creation time when this call ran, and the `except Exception:
-  logger.exception(...)` around it swallowed the failure without
-  surfacing anything. Fixed with a dedicated, empty CD-ROM device
-  (`controllerKey=201`, ESXi's second built-in IDE controller - the
-  first, `200`, is already fully claimed by the Windows/VirtIO ISOs'
-  own two units) added as part of the VM's initial creation spec,
-  purely so `MountToolsInstaller()` has somewhere to attach to; Windows
-  Setup's own install media usually claims `D:`, so Tools typically
-  lands on `E:` or `F:` once the guest is up, and
+  not have a CD-ROM drive configured") after an earlier version, calling
+  it at VM-creation time (before the Windows/VirtIO ISOs' own CD-ROM
+  devices existed - those only get attached later in the pipeline, once
+  uploaded), silently failed on every deployment, swallowed by a bare
+  `except Exception: logger.exception(...)`. Rather than adding a
+  dedicated CD-ROM device that would then sit on the VM permanently
+  (used for a few minutes during Tools install, dead weight for the
+  rest of the VM's life), it simply runs late enough to reuse a device
+  that already exists and is already empty: the Windows ISO's own
+  CD-ROM device, ejected (not removed) by the Setup-complete callback
+  handler well before post-install's VMware Tools step ever runs.
+  `mount_tools_installer` identifies exactly which CD-ROM device the
+  mount landed on (by its backing, not by assuming a fixed unit -
+  nothing in the vSphere API contract guarantees which of the VM's
+  existing devices it picks) and returns that unit number; once
+  `install_vmware_tools` (and, if it actually installed something, the
+  reboot right after) finishes, that same unit gets ejected again
+  (`detach_iso`) so the VM ends up in the same clean, driveless-looking
+  state regardless of whether this run needed Tools media at all -
+  logged either way, not just assumed to have worked. `install_vmware_tools`
+  itself then scans for `setup64.exe` across `D:`/`E:`/`F:`, since
+  Windows Setup's own install media usually claims `D:`, so Tools
+  typically lands on `E:` or `F:` once the guest is up, and
   runs it with `REBOOT=ReallySuppress` - a real, documented VMXNET3
   interaction means the network driver update needs an actual restart to
   take effect cleanly, or the guest loses network access immediately

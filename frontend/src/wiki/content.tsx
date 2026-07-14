@@ -1290,19 +1290,27 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               a real deployment ("the computer was unexpectedly restarted") — a WinRM call, running only
               once Setup has already finished and the OS is fully up, carries none of that risk, and
               reuses the exact same channel already proven for role installs.{" "}
-              <Code>WinRMClient.install_vmware_tools</Code> scans for <Code>setup64.exe</Code> on whichever
-              CD-ROM <Code>esxi.py</Code>'s <Code>create_vm</Code> mounted the installer ISO on via
-              vSphere's own <Code>MountToolsInstaller()</Code> API at VM creation. That call needs an{" "}
-              <em>existing</em> CD/DVD device to attach the Tools ISO to — confirmed against Broadcom's own
-              KB (vix error 21002, "This virtual machine does not have a CD-ROM drive configured") after it
-              silently failed on every deployment for a while: the Windows and VirtIO ISOs only get their
-              own CD-ROM devices later in the pipeline, once uploaded, so neither existed yet at
-              VM-creation time when this call used to run, and the surrounding{" "}
-              <Code>except Exception: logger.exception(...)</Code> swallowed the failure completely. Fixed
-              with a dedicated, empty CD-ROM device (<Code>controllerKey=201</Code>, ESXi's second built-in
-              IDE controller — the first, <Code>200</Code>, is already fully claimed by the Windows/VirtIO
-              ISOs' own two units) added to the VM's initial creation spec purely so{" "}
-              <Code>MountToolsInstaller()</Code> has somewhere to attach to. Windows Setup's own install
+              Right before that, <Code>HypervisorDriver.mount_tools_installer</Code> (ESXi:{" "}
+              <Code>vm.MountToolsInstaller()</Code>) mounts the Tools ISO — itself called from post-install,
+              not at VM creation. That call needs an <em>existing</em> CD/DVD device to attach the Tools
+              ISO to — confirmed against Broadcom's own KB (vix error 21002, "This virtual machine does not
+              have a CD-ROM drive configured") after an earlier version, calling it at VM-creation time
+              (before the Windows/VirtIO ISOs' own CD-ROM devices existed — those only get attached later
+              in the pipeline, once uploaded), silently failed on every deployment, swallowed by a bare{" "}
+              <Code>except Exception: logger.exception(...)</Code>. Rather than adding a dedicated CD-ROM
+              device that would then sit on the VM permanently — used for a few minutes during Tools
+              install, dead weight for the rest of the VM's life — it simply runs late enough to reuse a
+              device that already exists and is already empty: the Windows ISO's own CD-ROM device, ejected
+              (not removed) by the Setup-complete callback handler well before this step ever runs.{" "}
+              <Code>mount_tools_installer</Code> identifies exactly which CD-ROM device the mount landed on
+              (by its backing, not by assuming a fixed unit — nothing in the vSphere API contract
+              guarantees which of the VM's existing devices it picks) and returns that unit number; once{" "}
+              <Code>install_vmware_tools</Code> (and, if it actually installed something, the reboot right
+              after) finishes, that same unit gets ejected again (<Code>detach_iso</Code>) so the VM ends up
+              in the same clean, driveless-looking state regardless of whether this run needed Tools media
+              at all — logged either way, not just assumed to have worked.{" "}
+              <Code>WinRMClient.install_vmware_tools</Code> itself then scans for <Code>setup64.exe</Code>{" "}
+              across <Code>D:</Code>/<Code>E:</Code>/<Code>F:</Code>, since Windows Setup's own install
               media usually claims <Code>D:</Code>, so Tools typically lands on <Code>E:</Code> or{" "}
               <Code>F:</Code> once the guest is up. This is what
               makes a <strong>DHCP</strong> deployment's guest IP discoverable at all without a human
