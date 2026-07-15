@@ -62,7 +62,7 @@ export default function Layout() {
   });
 
   return (
-    <div className="flex min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+    <div className="flex h-screen overflow-hidden bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       <aside className="flex w-60 shrink-0 flex-col border-r border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
         <div className="border-b border-neutral-200 p-4 dark:border-neutral-800">
           <div className="flex items-center gap-2">
@@ -86,7 +86,7 @@ export default function Layout() {
             ))}
           </Select>
         </div>
-        <nav className="flex-1 space-y-0.5 p-2">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
@@ -122,8 +122,8 @@ export default function Layout() {
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto">
-        <div className="flex items-center justify-end gap-3 border-b border-neutral-200 bg-white px-8 py-2 dark:border-neutral-800 dark:bg-neutral-900">
+      <main className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex shrink-0 items-center justify-end gap-3 border-b border-neutral-200 bg-white px-8 py-2 dark:border-neutral-800 dark:bg-neutral-900">
           <button
             className="rounded-md p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
             onClick={toggle}
@@ -133,7 +133,7 @@ export default function Layout() {
           </button>
           <NotificationBell />
         </div>
-        <div className="min-h-full p-8">
+        <div className="flex-1 overflow-y-auto p-8">
           <Outlet />
         </div>
       </main>
