@@ -931,29 +931,39 @@ pending → creating_vm → booting → installing_os → post_install → confi
   mounted (a non-ESXi host, say), it logs that and moves on - always
   best-effort, never worth failing a deployment over.
 
-  That restart is a full **shutdown + floppy removal + power-on**
-  through the hypervisor (`_shutdown_remove_floppy_and_power_on`), not
+  That restart is a full **shutdown + device removal + power-on**
+  through the hypervisor (`_shutdown_remove_media_and_power_on`), not
   a guest-initiated `shutdown.exe /r` like every other reboot in this
   pipeline: since a restart is already happening here regardless, it's
-  also the one point the answer-file floppy device can actually be
-  *removed* rather than just ejected - `HypervisorDriver.remove_floppy`
-  only works while the VM is genuinely powered off (`InvalidPowerState`
-  otherwise, the same constraint `detach_floppy`'s own eject-not-remove
-  approach exists for elsewhere), and this is the only reboot in the
-  pipeline that's a real power cycle rather than a restart from inside
-  the guest. `WinRMClient.shutdown()` (`shutdown.exe /s`, not `/r`)
-  triggers it; the worker then polls the hypervisor's own power state
-  until it actually reports `poweredOff` (bounded, `SHUTDOWN_MAX_ATTEMPTS`
-  - if it never gets there, floppy removal is skipped and the VM is
-  powered back on regardless, rather than left off indefinitely),
-  removes the floppy, then powers back on and waits for the guest the
-  same way every other reboot does (`_wait_for_guest_settled`, the
-  shared tail both this and the plain guest-initiated reboots use).
-  Floppy removal itself is best-effort: the device was already harmless
-  (ejected, empty, its actual answer-file image already deleted from the
-  datastore) either way, a failure here is logged and moved past rather
-  than failing an otherwise fully-successful deployment. This is what
-  makes a **DHCP** deployment's guest IP
+  also the one point the answer-file floppy device *and* the CD-ROM
+  device `mount_tools_installer` used can actually be **removed**
+  rather than just ejected - `HypervisorDriver.remove_floppy`/
+  `remove_cdrom` only work while the VM is genuinely powered off
+  (`InvalidPowerState` otherwise, the same constraint `detach_floppy`/
+  `detach_iso`'s own eject-not-remove approach exists for elsewhere),
+  and this is the only reboot in the pipeline that's a real power cycle
+  rather than a restart from inside the guest. Confirmed live: the
+  Tools CD-ROM device used to only ever get ejected (`detach_iso`,
+  logged as "VMware Tools installer media ejected") *after* this reboot
+  already completed and the VM was back on - by definition too late for
+  `remove_cdrom` to ever apply, leaving an empty-but-present CD-ROM
+  device on every completed deployment indefinitely. Moved inside this
+  same power-off window instead. `WinRMClient.shutdown()`
+  (`shutdown.exe /s`, not `/r`) triggers it; the worker then polls the
+  hypervisor's own power state until it actually reports `poweredOff`
+  (bounded, `SHUTDOWN_MAX_ATTEMPTS` - if it never gets there, device
+  removal is skipped and the VM is powered back on regardless, rather
+  than left off indefinitely), removes the floppy and CD-ROM device(s),
+  then powers back on and waits for the guest the same way every other
+  reboot does (`_wait_for_guest_settled`, the shared tail both this and
+  the plain guest-initiated reboots use). Device removal itself is
+  best-effort per device: each one was already harmless (ejected,
+  empty) either way, a failure here is logged and moved past rather
+  than failing an otherwise fully-successful deployment - if this
+  reboot never actually reaches `poweredOff` in time, `run_post_install`
+  falls back to its older eject-only cleanup for the Tools CD-ROM
+  specifically, so it's at least emptied even when it can't be removed
+  outright. This is what makes a **DHCP** deployment's guest IP
   discoverable at all: `HypervisorDriver.get_guest_ip()` has nothing to
   report without Tools present, and a real deployment previously spun for
   the full `WINRM_REACHABILITY_MAX_ATTEMPTS` on exactly that gap (see the

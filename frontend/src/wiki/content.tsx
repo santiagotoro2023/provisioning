@@ -1438,22 +1438,30 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               (never a hard failure) if they don't match.
             </P>
             <P>
-              That restart is a full <strong>shutdown, floppy removal, and power-on</strong> through the
+              That restart is a full <strong>shutdown, device removal, and power-on</strong> through the
               hypervisor, not a guest-initiated <Code>shutdown.exe /r</Code> like every other reboot in this
               pipeline — since a restart is already happening here regardless, it's also the one point the
-              answer-file floppy device can actually be <em>removed</em> instead of just ejected.{" "}
-              <Code>HypervisorDriver.remove_floppy</Code> only works while the VM is genuinely powered off
-              (<Code>InvalidPowerState</Code> otherwise, the same constraint <Code>detach_floppy</Code>'s
-              own eject-not-remove approach exists for elsewhere), and this is the only reboot in the whole
-              pipeline that's a real hypervisor power cycle rather than a restart from inside the guest.{" "}
+              answer-file floppy device <em>and</em> the CD-ROM device <Code>mount_tools_installer</Code>{" "}
+              used can actually be <em>removed</em> instead of just ejected.{" "}
+              <Code>HypervisorDriver.remove_floppy</Code>/<Code>remove_cdrom</Code> only work while the VM is
+              genuinely powered off (<Code>InvalidPowerState</Code> otherwise, the same constraint{" "}
+              <Code>detach_floppy</Code>/<Code>detach_iso</Code>'s own eject-not-remove approach exists for
+              elsewhere), and this is the only reboot in the whole pipeline that's a real hypervisor power
+              cycle rather than a restart from inside the guest. Confirmed live: the Tools CD-ROM device used
+              to only ever get ejected <em>after</em> this reboot already completed and the VM was back on —
+              too late for removal by definition, leaving an empty-but-present CD-ROM device on every
+              completed deployment indefinitely. Moved inside this same power-off window instead.{" "}
               <Code>WinRMClient.shutdown()</Code> (<Code>shutdown.exe /s</Code>, not <Code>/r</Code>)
               triggers it; the worker then polls the hypervisor's own power state until it actually reports{" "}
-              <Code>poweredOff</Code> (bounded — if it never gets there, floppy removal is skipped and the
-              VM is powered back on regardless rather than left off indefinitely), removes the floppy, then
-              powers back on and waits for the guest to settle the exact same way every other reboot in this
-              pipeline does. Floppy removal itself is best-effort: the device was already harmless (ejected,
-              empty, its actual answer-file image already deleted from the datastore) either way, a failure
-              here is logged and moved past rather than failing an otherwise fully-successful deployment.
+              <Code>poweredOff</Code> (bounded — if it never gets there, device removal is skipped and the
+              VM is powered back on regardless rather than left off indefinitely), removes the floppy and
+              CD-ROM device(s), then powers back on and waits for the guest to settle the exact same way
+              every other reboot in this pipeline does. Removal itself is best-effort per device: each one
+              was already harmless (ejected, empty) either way, a failure here is logged and moved past
+              rather than failing an otherwise fully-successful deployment — and if this reboot never
+              actually reaches <Code>poweredOff</Code> in time, <Code>run_post_install</Code> falls back to
+              its older eject-only cleanup for the Tools CD-ROM specifically, so it's at least emptied even
+              when it can't be removed outright.
             </P>
             <P>
               A template's <strong>custom admin account</strong> toggle (Templates page, off by default)
