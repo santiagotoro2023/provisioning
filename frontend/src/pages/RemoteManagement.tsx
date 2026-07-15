@@ -280,10 +280,13 @@ docker compose exec -w /app rustdesk ./apimain reset-admin-pwd "$(grep '^RUSTDES
             </table>
           </div>
           <p className="text-neutral-500">
-            Using a domain name instead of an IP? Point it at this host and set RUSTDESK_RELAY_HOST /
-            RUSTDESK_API_PUBLIC_URL in .env to it.{" "}
+            To reach agents from outside this network, set your public IP or domain in{" "}
+            <Link to="/settings" className="text-blue-600 hover:underline dark:text-blue-400">
+              Settings → Remote Management
+            </Link>{" "}
+            and forward the ports above.{" "}
             <Link to="/wiki" className="text-blue-600 hover:underline dark:text-blue-400">
-              Full Remote Management guide
+              Full guide
             </Link>
           </p>
         </div>

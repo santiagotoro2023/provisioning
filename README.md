@@ -259,10 +259,13 @@ too):
 | 21118, 21119 | TCP | Web client (over WebSocket) |
 | 21114 | TCP | Web client + API (browser loads the session here) |
 
-Using a domain name is fine — point it at this host and set
-`RUSTDESK_RELAY_HOST` / `RUSTDESK_API_PUBLIC_URL` in `.env`. `scripts/setup.sh`
-detects your public IP and prints the exact internet-access steps at the end of
-the install; the Wiki (**Remote Management → Network & firewall setup**) has full
+You set the public address in the app, not in files: **Settings → Remote
+Management** takes a public IP or domain and, on Apply, rewrites the config and
+restarts the relay servers for you (it defaults to your LAN IP). Agents bake in
+whichever address is set when they enrol, so set your public address before
+enrolling machines you want reachable from outside. `scripts/setup.sh` also
+detects your public IP and prints the internet-access steps at the end of the
+install; the Wiki (**Remote Management → Network & firewall setup**) has full
 step-by-step guides for home/office routers, cloud VMs, and DNS.
 
 **Enrolling a machine.** Either attach the "DeployCore Remote Management Agent"

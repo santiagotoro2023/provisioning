@@ -1734,9 +1734,10 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               ]}
             />
             <P>
-              Using a domain name instead of a bare IP is fine — point it at the DeployCore host and set{" "}
-              <Code>RUSTDESK_RELAY_HOST</Code> and <Code>RUSTDESK_API_PUBLIC_URL</Code> in <Code>.env</Code>{" "}
-              to it.
+              You choose that address in <strong>Settings → Remote Management</strong> (not in files) — it
+              defaults to your LAN IP, and you set a public IP or domain there for internet access. How does an
+              agent know where to connect? At install time it asks DeployCore and bakes in whatever the address
+              is set to then, so set your public address before enrolling agents you want reachable from outside.
             </P>
             <P>
               <strong>Enrolling a host.</strong> Two ways, both end in the machine showing up as enrolled
@@ -1854,8 +1855,14 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               <strong>What's already automatic.</strong> <Code>scripts/setup.sh</Code> generates all secrets,
               configures the server, and sets the relay address to this host's detected LAN IP — so agents on
               the same network work immediately. It also detects your public IP and prints the internet-access
-              steps below at the end of the install. The two things it cannot do for you are forwarding ports
-              on your router/firewall and choosing a public address; those are below.
+              steps at the end of the install. The two things it cannot do for you are forwarding ports on your
+              router/firewall and choosing a public address; those are below.
+            </P>
+            <P>
+              <strong>You set the public address in the app, not in files.</strong> Go to{" "}
+              <strong>Settings → Remote Management</strong>, enter your public IP or domain, and click{" "}
+              <strong>Apply</strong>. DeployCore updates its config and restarts the relay servers for you — no{" "}
+              <Code>.env</Code> editing. (The default is your LAN IP.)
             </P>
             <P>
               <strong>The ports.</strong> All of these must reach the DeployCore host from wherever the agents
@@ -1878,10 +1885,10 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               items={[
                 <>In your router admin, add port-forwarding rules sending <Code>21114–21119 TCP</Code> and{" "}
                   <Code>21116 UDP</Code> to this host's LAN IP.</>,
-                <>Find your public IP (the installer prints it; or visit an "what's my IP" site).</>,
-                <>In <Code>.env</Code> set <Code>RUSTDESK_RELAY_HOST=&lt;public-ip-or-domain&gt;</Code> and{" "}
-                  <Code>RUSTDESK_API_PUBLIC_URL=http://&lt;public-ip-or-domain&gt;:21114</Code>.</>,
-                <>Run <Code>docker compose up -d</Code> to apply.</>,
+                <>Find your public IP (the installer prints it; or visit a "what's my IP" site) — or use a
+                  domain pointed at it.</>,
+                <>In <strong>Settings → Remote Management</strong>, enter that public IP/domain and click{" "}
+                  <strong>Apply</strong>.</>,
               ]}
             />
             <P>
@@ -1891,15 +1898,15 @@ export const WIKI_CATEGORIES: WikiCategory[] = [
               items={[
                 <>In the provider's firewall / security group, allow inbound <Code>21114–21119 TCP</Code> and{" "}
                   <Code>21116 UDP</Code> (plus <Code>443</Code> for the web UI).</>,
-                <>Use the VM's public IP or a domain pointed at it for <Code>RUSTDESK_RELAY_HOST</Code> and{" "}
-                  <Code>RUSTDESK_API_PUBLIC_URL</Code> in <Code>.env</Code>, then <Code>docker compose up -d</Code>.</>,
+                <>In <strong>Settings → Remote Management</strong>, set the host to the VM's public IP or a
+                  domain pointed at it, and click <strong>Apply</strong>.</>,
               ]}
             />
             <P>
               <strong>DNS (optional but recommended).</strong> Point an A record (e.g.{" "}
-              <Code>remote.yourcompany.com</Code>) at the DeployCore host's public IP and use that domain for
-              both <Code>RUSTDESK_RELAY_HOST</Code> and <Code>RUSTDESK_API_PUBLIC_URL</Code>. Cleaner than a
-              bare IP and survives your IP changing.
+              <Code>remote.yourcompany.com</Code>) at the DeployCore host's public IP and enter that domain in{" "}
+              <strong>Settings → Remote Management</strong>. Cleaner than a bare IP and survives your IP
+              changing.
             </P>
             <P>
               <strong>Note on "works from the internet but not from the LAN".</strong> Some routers don't route

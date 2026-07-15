@@ -21,6 +21,7 @@ interface SettingsCardDef {
 const INSTANCE_SETTINGS: SettingsCardDef[] = [
   { id: "msp", title: "MSP Organization", description: "Instance name and logo, shown in the sidebar and sign-in screen." },
   { id: "updates", title: "Updates", description: "Check for and apply DeployCore updates." },
+  { id: "remote-management", title: "Remote Management", description: "The address agents and browsers use to reach this instance — set a public URL for internet access." },
   { id: "backups", title: "Database backups", description: "Manual and scheduled backups of the whole database." },
   { id: "m365", title: "Email notifications", description: "Deployment emails sent through your Microsoft 365 tenant." },
   { id: "teams", title: "Teams notifications", description: "Deployment notifications sent directly to users in Teams." },
@@ -99,6 +100,7 @@ export default function SettingsPage() {
         <SettingsModal onClose={() => setActiveModal(null)}>
           {activeModal === "msp" && <MspOrganizationPanel />}
           {activeModal === "updates" && <UpdatesPanel />}
+          {activeModal === "remote-management" && <RemoteManagementPanel />}
           {activeModal === "backups" && <BackupsPanel />}
           {activeModal === "m365" && <M365Panel />}
           {activeModal === "teams" && <TeamsPanel />}
@@ -587,6 +589,131 @@ interface BackupFile {
   filename: string;
   size_bytes: number;
   created_at: number;
+}
+
+interface RemoteManagementConfig {
+  host: string;
+  ports: { port: number; proto: string; purpose: string }[];
+  apply_status: { stage: string; error: string | null } | null;
+}
+
+function RemoteManagementPanel() {
+  const [config, setConfig] = useState<RemoteManagementConfig | null>(null);
+  const [host, setHost] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function load() {
+    const c = await api.get<RemoteManagementConfig>("/settings/remote-management");
+    setConfig(c);
+    setHost(c.host);
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  // While an Apply is restarting the relay servers, poll so the status clears.
+  useEffect(() => {
+    if (config?.apply_status?.stage !== "applying") return;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [config?.apply_status?.stage]);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!host.trim()) return;
+    setError(null);
+    setSaving(true);
+    setSaved(false);
+    try {
+      await api.put("/settings/remote-management", { host });
+      setSaved(true);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to apply.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const applyStage = config?.apply_status?.stage;
+
+  return (
+    <div className="rounded-lg border border-neutral-200 bg-white p-5 dark:border-neutral-700 dark:bg-neutral-900">
+      <h2 className="mb-1 text-sm font-semibold">Remote Management</h2>
+      <p className="mb-4 text-xs text-neutral-500">
+        The address agents and your browser use to reach this instance's Remote Management servers. Defaults to this
+        host's LAN IP, so machines on the same network work out of the box. To control machines from anywhere, forward
+        the ports below to this host and set your public IP or domain here.
+      </p>
+
+      <form onSubmit={onSubmit}>
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+          Public host or domain
+        </label>
+        <input
+          className="mb-1 w-full rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm dark:bg-neutral-900"
+          value={host}
+          onChange={(e) => setHost(e.target.value)}
+          placeholder="remote.example.com  (or an IP)"
+        />
+        <p className="mb-3 text-xs text-neutral-400">
+          Just the host — no <code>https://</code> or port; DeployCore adds those.
+        </p>
+
+        {error && <div className="mb-3 text-xs text-red-600">{error}</div>}
+        {saved && applyStage === "applying" && (
+          <div className="mb-3 text-xs text-amber-600 dark:text-amber-400">
+            Applying — restarting the relay servers with the new address…
+          </div>
+        )}
+        {applyStage === "done" && !saving && (
+          <div className="mb-3 text-xs text-emerald-600 dark:text-emerald-400">Applied.</div>
+        )}
+        {applyStage === "failed" && (
+          <div className="mb-3 text-xs text-red-600">
+            Couldn't restart the relay servers automatically ({config?.apply_status?.error || "unknown error"}). The new
+            address is saved and used for new agents/sessions; run <code>docker compose up -d rustdesk</code> on the host
+            to finish.
+          </div>
+        )}
+
+        <button
+          type="submit"
+          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+          disabled={saving || !host.trim()}
+        >
+          {saving ? "Applying…" : "Apply"}
+        </button>
+      </form>
+
+      <div className="mt-5 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+        <h3 className="mb-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
+          Ports to forward for internet access
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <tbody className="font-mono">
+              {(config?.ports || []).map((p) => (
+                <tr key={`${p.port}-${p.proto}`} className="border-t border-neutral-100 dark:border-neutral-800">
+                  <td className="py-1 pr-4">{p.port}</td>
+                  <td className="py-1 pr-4">{p.proto}</td>
+                  <td className="py-1 font-sans text-neutral-500">{p.purpose}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-xs text-neutral-400">
+          <strong>How agents find this address:</strong> at install time each agent asks DeployCore where to connect and
+          bakes in whatever this is set to then. Set your public address here <em>before</em> enrolling agents you want
+          reachable from outside — agents already enrolled keep their old address until the installer is re-run on them.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function BackupsPanel() {

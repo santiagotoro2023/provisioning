@@ -26,10 +26,37 @@ hammered.
 import logging
 
 import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.models.setting import Setting, SettingScope
 
 logger = logging.getLogger(__name__)
+
+# Global setting the Settings UI writes; the api reads it live so agent-config,
+# session links, and the readiness banner reflect a change immediately (the
+# relay/ID containers themselves are realigned by the updater - see
+# updater/update.sh apply_remote_management). Falls back to the env default,
+# which scripts/setup.sh sets to this host's LAN IP, so a fresh install has
+# working LAN Remote Management with nothing set.
+REMOTE_HOST_SETTING_KEY = "remote_management_host"
+
+
+async def resolve_public_host(db: AsyncSession) -> str:
+    result = await db.execute(
+        select(Setting.value).where(Setting.scope == SettingScope.GLOBAL, Setting.key == REMOTE_HOST_SETTING_KEY)
+    )
+    value = result.scalar_one_or_none()
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return get_settings().rustdesk_relay_host
+
+
+def public_url_for(host: str) -> str:
+    """The browser loads the embedded web client from here (rustdesk-api's
+    port 21114 on the public host)."""
+    return f"http://{host}:21114"
 
 _TIMEOUT_SECONDS = 15
 _SHARE_EXPIRE_SECONDS = 60 * 60  # a connect session link good for an hour
@@ -110,11 +137,13 @@ async def _admin_post(path: str, body: dict) -> httpx.Response:
     return resp  # type: ignore[return-value]  # loop always assigns resp before here
 
 
-async def create_session_url(rustdesk_id: str, rustdesk_password: str, host_name: str) -> str:
+async def create_session_url(rustdesk_id: str, rustdesk_password: str, host_name: str, public_url: str) -> str:
     """Ensures the peer is known to the service account's address book, mints
     a one-time expiring share link for it, and returns the embeddable web-client
     URL. rustdesk_password is the host's own permanent/unattended password,
-    decrypted from ManagedHost.rustdesk_key by the caller."""
+    decrypted from ManagedHost.rustdesk_key by the caller. public_url is the
+    browser-facing base URL (resolve_public_host + public_url_for), so the
+    session honours the Settings-configured Remote Management host."""
     # Idempotent by intent: re-adding a peer already in the address book is a
     # harmless no-op / update, and this is the only place the current password
     # gets refreshed onto the rustdesk-api side, so it runs every session
@@ -143,5 +172,4 @@ async def create_session_url(rustdesk_id: str, rustdesk_password: str, host_name
     if not share_token:
         raise RemoteDesktopError("Remote session link was not issued by the RustDesk server.")
 
-    public = get_settings().rustdesk_api_public_url.rstrip("/")
-    return f"{public}/webclient2/#/?share_token={share_token}"
+    return f"{public_url.rstrip('/')}/webclient2/#/?share_token={share_token}"

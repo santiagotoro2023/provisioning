@@ -1,8 +1,10 @@
+import re
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +22,7 @@ from app.schemas.setting import SettingRead, SettingValue
 from app.schemas.teams import TeamsConfigRead, TeamsConfigUpdate
 from app.schemas.update import UpdateStatusRead
 from app.security.rbac import get_current_user, require_role
-from app.services import audit, m365, teams, tls_certs
+from app.services import audit, m365, remote_desktop, teams, tls_certs
 from app.services.notifications import EVENT_CONTEXT_FIELDS
 
 router = APIRouter(tags=["settings"])
@@ -586,4 +588,63 @@ async def run_update_check(
     sitting on this page wanting to know right now."""
     await _set_global_setting_value(db, "check_requested", True)
     audit.record(db, action="settings.update_check_triggered", target_type="settings", user_id=current_user.id)
+    await db.commit()
+
+
+class RemoteManagementConfigUpdate(BaseModel):
+    host: str
+
+
+def _sanitize_host(raw: str) -> str:
+    """Accept whatever the user pastes (a domain, an IP, or a full URL) and
+    reduce it to a bare host - no scheme, path, or port."""
+    h = raw.strip()
+    h = re.sub(r"^[a-zA-Z]+://", "", h)
+    h = h.split("/")[0]
+    h = h.split(":")[0]
+    return h.strip()
+
+
+@router.get(
+    "/api/settings/remote-management",
+    dependencies=[Depends(require_role(Role.ADMIN, org_scoped=False))],
+)
+async def get_remote_management_config(db: AsyncSession = Depends(get_db)) -> dict:
+    """Current Remote Management public host (what agents and the browser
+    connect to), the ports to forward, and the status of the last Apply. The
+    host defaults to this instance's LAN IP so same-network Remote Management
+    works with nothing set."""
+    return {
+        "host": await remote_desktop.resolve_public_host(db),
+        "ports": remote_desktop.RELAY_PORTS,
+        "apply_status": await _get_setting_value(db, "remote_management_apply_status"),
+    }
+
+
+@router.put(
+    "/api/settings/remote-management",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_role(Role.ADMIN, org_scoped=False))],
+)
+async def set_remote_management_config(
+    body: RemoteManagementConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Sets the public host. The api uses it immediately for new agent
+    enrollments and session links; the flag is picked up by the updater
+    container (see updater/update.sh apply_remote_management), which rewrites
+    .env and restarts the relay/ID servers so they advertise the new address -
+    no manual file editing. Existing agents keep the address they were enrolled
+    with until re-run (see the Wiki)."""
+    host = _sanitize_host(body.host)
+    if not host:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "a host or domain is required")
+    await _set_global_setting_value(db, "remote_management_host", host)
+    await _set_global_setting_value(db, "remote_management_apply_status", {"stage": "applying", "error": None})
+    await _set_global_setting_value(db, "remote_management_apply_requested", True)
+    audit.record(
+        db, action="settings.remote_management_updated", target_type="settings",
+        user_id=current_user.id, detail={"host": host},
+    )
     await db.commit()

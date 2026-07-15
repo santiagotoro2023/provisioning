@@ -32,17 +32,16 @@ async def _host_for_token(db: AsyncSession, enroll_token: str) -> ManagedHost:
 
 
 @router.get("/status", response_model=RemoteStatus, dependencies=[Depends(require_role(Role.READONLY, org_scoped=False))])
-async def remote_status() -> RemoteStatus:
+async def remote_status(db: AsyncSession = Depends(get_db)) -> RemoteStatus:
     """Instance-level (not org-scoped) readiness for the Remote Management
     setup banner - whether the self-hosted RustDesk stack is configured and
     reachable, plus the relay host and ports the user must forward/allow."""
     configured, reachable, detail = await remote_desktop.probe()
-    settings = get_settings()
     return RemoteStatus(
         configured=configured,
         reachable=reachable,
         detail=detail,
-        relay_host=settings.rustdesk_relay_host,
+        relay_host=await remote_desktop.resolve_public_host(db),
         ports=[RemotePort(**p) for p in remote_desktop.RELAY_PORTS],
     )
 
@@ -65,7 +64,7 @@ async def agent_config(enroll_token: str, db: AsyncSession = Depends(get_db)) ->
     instance's server - so the relay address and server key never have to be
     copied by hand."""
     await _host_for_token(db, enroll_token)
-    relay_host = get_settings().rustdesk_relay_host
+    relay_host = await remote_desktop.resolve_public_host(db)
     return RemoteAgentConfig(
         relay_host=relay_host,
         id_server=f"{relay_host}:21116",
