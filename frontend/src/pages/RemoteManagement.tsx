@@ -250,6 +250,58 @@ docker compose exec -w /app rustdesk ./apimain reset-admin-pwd "$(grep '^RUSTDES
         </>
       )}
 
+      {/* The embedded web-client session runs on its own HTTPS port (8444,
+          see services/remote_desktop.py's public_url_for()) so it isn't
+          blocked as mixed content - but that means it's a SEPARATE origin
+          from this app's own :443, with its own self-signed certificate a
+          browser has to be told to trust separately, and confirmed live
+          that can't be done from INSIDE the embedded iframe at all
+          (browsers deliberately refuse to let you click through a cert
+          warning inside a frame - the same restriction that stops a
+          malicious page from tricking someone into trusting a bad cert).
+          Rather than sending people to click through a per-site warning
+          for :8444 specifically (which wouldn't cover any OTHER port this
+          instance might ever use either), this links to /ca.crt - Caddy's
+          own locally-generated Certificate Authority root (see
+          proxy/entrypoint.sh) - installed as a trusted root ONCE, a browser
+          (and the whole OS, for anything else that checks certs) then
+          trusts EVERY certificate this instance issues automatically,
+          forever, on every port, no more warnings anywhere. Not needed at
+          all once a real certificate is uploaded (Settings -> HTTPS
+          certificate) - that's trusted by default already. */}
+      {ready && (
+        <details className="border-t border-neutral-200 px-4 py-2 text-xs text-neutral-500 dark:border-neutral-800">
+          <summary className="cursor-pointer">
+            Using the default self-signed certificate? Install{" "}
+            <a
+              href={`${window.location.origin}/ca.crt`}
+              className="text-blue-600 hover:underline dark:text-blue-400"
+              onClick={(e) => e.stopPropagation()}
+            >
+              this instance's certificate authority
+            </a>{" "}
+            as a trusted root on each machine that'll use Remote Management, once - otherwise Connect/Shadow will
+            silently fail to load (a browser won't let you click through a certificate warning inside an embedded
+            frame).
+          </summary>
+          <div className="mt-2 space-y-1 pl-4">
+            <p>
+              <strong>Windows:</strong> double-click the downloaded <code>deploycore-ca.crt</code> → Install
+              Certificate → Local Machine → "Place all certificates in the following store" → Trusted Root
+              Certification Authorities.
+            </p>
+            <p>
+              <strong>macOS:</strong> double-click the file to open it in Keychain Access, then set "When using this
+              certificate" to Always Trust.
+            </p>
+            <p>
+              <strong>Linux:</strong> copy it into <code>/usr/local/share/ca-certificates/</code> and run{" "}
+              <code>update-ca-certificates</code> (Debian/Ubuntu) - other distros have their own equivalent.
+            </p>
+          </div>
+        </details>
+      )}
+
       {/* Port-forwarding guidance is always relevant: agents can be anywhere on
           the internet, and opening these ports to this host is the one setup
           step that genuinely can't be automated from inside a container. Kept

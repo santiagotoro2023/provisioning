@@ -60,6 +60,26 @@ render_caddyfile() {
 
 :443 {
 	$cert_block
+
+	# Lets a browser trust EVERY certificate this instance ever issues (both
+	# :443 and :8444, and any future port) with ONE install, instead of
+	# clicking through a per-site warning separately for each origin/port -
+	# confirmed live as a real, recurring pain point once the embedded web
+	# client needed its own port (see :8444 below): a browser flatly refuses
+	# to let you click through a cert warning INSIDE an embedded iframe at
+	# all, so without this there'd be no way to get past it there except
+	# visiting each new origin directly first. The official Caddy Docker
+	# image sets XDG_DATA_HOME=/data (this container's caddy_data volume),
+	# so `tls internal`'s own local CA root always lands at exactly this
+	# path - not served at all once a real uploaded certificate is in use
+	# (self-signed mode only; a real cert needs no local CA trusted at all).
+	handle /ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		file_server
+		header Content-Disposition "attachment; filename=deploycore-ca.crt"
+	}
+
 	reverse_proxy frontend:5173
 }
 

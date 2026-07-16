@@ -191,6 +191,25 @@ uploaded certificate expired, **Switch to self-signed temporarily** does
 exactly that without discarding the uploaded certificate, and **Use this
 certificate again** switches back to it, no re-upload needed.
 
+**Remote Management's embedded sessions need one extra step under the
+self-signed default.** The embedded web-client view runs on its own HTTPS
+port (8444) so it isn't blocked as mixed content, which means it's a
+separate origin with its own self-signed certificate a browser has to
+trust separately - and a browser flatly refuses to let you click through a
+certificate warning *inside* an embedded frame at all (the same
+restriction that stops a malicious page from tricking someone into
+trusting a bad cert), so without doing anything Connect/Shadow just stays
+blank with no obvious next step. Rather than visiting each port directly,
+install `https://<this-instance>/ca.crt` - Caddy's own locally-generated
+Certificate Authority root - as a trusted root once per machine that'll
+use Remote Management (Windows: double-click → Install Certificate →
+Local Machine → Trusted Root Certification Authorities; macOS: open in
+Keychain Access → Always Trust; Linux: copy into
+`/usr/local/share/ca-certificates/` and run `update-ca-certificates`).
+That one install then trusts every certificate this instance issues, on
+every port, forever - not just this one. Not needed at all once a real
+uploaded certificate is in use.
+
 This is handled by a small `proxy` service (Caddy) in front of the rest of
 the stack: it terminates TLS on 443 and redirects 80 to it, forwarding
 everything else to the frontend unchanged. The self-signed default starts
