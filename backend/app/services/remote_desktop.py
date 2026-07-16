@@ -76,10 +76,20 @@ async def resolve_app_public_url(db: AsyncSession) -> str:
     return get_settings().app_public_url.rstrip("/")
 
 
-def public_url_for(host: str) -> str:
-    """The browser loads the embedded web client from here (rustdesk-api's
-    port 21114 on the public host)."""
-    return f"http://{host}:21114"
+def public_url_for() -> str:
+    """The browser loads the embedded web client from here - a path-only,
+    same-origin URL (proxy/entrypoint.sh's Caddyfile reverse-proxies
+    /rustdesk-webclient/* to the rustdesk container's own port 21114,
+    stripping the prefix), not a direct http://<host>:21114 URL. Confirmed
+    live as a real bug: DeployCore's own UI is served over HTTPS, and a
+    plain HTTP iframe embedded in an HTTPS page is exactly the kind of
+    "mixed active content" browsers block by default - the embedded session
+    showed a black screen with no visible error, because the RustDesk
+    protocol's own WebSocket connections never got a chance to open. A
+    path with no scheme/host at all sidesteps needing to know or guess the
+    operator's own external address entirely - the browser resolves it
+    against the current page's origin, whatever that happens to be."""
+    return "/rustdesk-webclient"
 
 _TIMEOUT_SECONDS = 15
 _SHARE_EXPIRE_SECONDS = 60 * 60  # a connect session link good for an hour
@@ -211,8 +221,9 @@ async def create_session_url(rustdesk_id: str, rustdesk_password: str, host_name
     a one-time expiring share link for it, and returns the embeddable web-client
     URL. rustdesk_password is the host's own permanent/unattended password,
     decrypted from ManagedHost.rustdesk_key by the caller. public_url is the
-    browser-facing base URL (resolve_public_host + public_url_for), so the
-    session honours the Settings-configured Remote Management host."""
+    browser-facing base URL (public_url_for() - a path-only, same-origin URL,
+    see its own docstring for why), so the embedded session loads through the
+    same HTTPS origin as the rest of the app, not a separate http:// one."""
     # Idempotent by intent: re-adding a peer already in the address book is a
     # harmless no-op / update, and this is the only place the current password
     # gets refreshed onto the rustdesk-api side, so it runs every session

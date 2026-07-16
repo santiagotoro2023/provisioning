@@ -60,6 +60,22 @@ render_caddyfile() {
 
 :443 {
 	$cert_block
+
+	# The embedded RustDesk web client (rustdesk-api's own webclient2, port
+	# 21114) is proxied through the SAME HTTPS origin as the rest of the
+	# app, not loaded directly as its own http://<host>:21114 URL - a plain
+	# HTTP iframe inside this HTTPS page is exactly the "mixed active
+	# content" browsers block by default, confirmed live as the actual
+	# cause of the embedded session showing a black screen with no visible
+	# error (the RustDesk protocol's own WebSocket connections never got a
+	# chance to open at all). See services/remote_desktop.py's
+	# public_url_for(), which builds a path-only, same-origin URL for
+	# exactly this reason - no external host/port for it to guess at.
+	handle /rustdesk-webclient/* {
+		uri strip_prefix /rustdesk-webclient
+		reverse_proxy rustdesk:21114
+	}
+
 	reverse_proxy frontend:5173
 }
 EOF
