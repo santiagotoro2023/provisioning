@@ -17,13 +17,25 @@
     This is the single source of truth for the install logic. It is:
       * served as-is by  GET /api/remote/install-script  (with the server URL
         baked in) for the one-line install shown on the Remote Management tab, and
-      * bundled into the .msi (remote-agent/wix/), where a one-time Scheduled
-        Task the MSI's own custom action registers and triggers runs it -
-        deliberately NOT run directly from inside the custom action itself,
-        since this script's own nested msiexec.exe call (installing the
-        bundled RustDesk client) would otherwise collide with the
-        _MSIExecute mutex the outer MSI still holds for its whole
-        InstallExecuteSequence. See DeployCoreRemoteAgent.wxs's own comments.
+      * bundled into the .msi (remote-agent/wix/), where a Scheduled Task the
+        MSI's own custom action registers and triggers runs it - deliberately
+        NOT run directly from inside the custom action itself, since this
+        script's own nested msiexec.exe call (installing the bundled RustDesk
+        client) would otherwise collide with the _MSIExecute mutex the outer
+        MSI still holds for its whole InstallExecuteSequence. That task
+        triggers ONSTART (not just once immediately) - confirmed necessary
+        live: the DeployCore deployment pipeline's own unconditional final
+        reboot can land mid-script (it doesn't wait for this background task,
+        only for the wrapper .msi's own quick self-install), so this script
+        has to be safely resumable across that reboot, not just re-runnable
+        by choice. See DeployCoreRemoteAgent.wxs's own comments.
+
+    Because a reboot can interrupt this mid-run and the Scheduled Task will
+    simply fire it again on the next boot, every step here is written to be
+    safe to re-run from scratch: RustDesk's own install is skipped if already
+    present, the service (re)creation is idempotent, and the final enrollment
+    call is explicitly safe to call more than once (see remote_agent.py).
+    Nothing here assumes it's the only or first attempt.
 
     Run standalone (as Administrator):
       $env:DC_TOKEN = "<enroll-token>"; iwr <server>/api/remote/install-script | iex
@@ -250,8 +262,12 @@ Write-Step "Done. This machine is now reachable in DeployCore Remote Management 
 
 } catch {
     Write-Step "FAILED: $($_.Exception.Message)"
-    Remove-AgentTask
     Stop-Transcript | Out-Null
+    # Deliberately NOT calling Remove-AgentTask here (unlike the success path
+    # below) - the Scheduled Task's ONSTART trigger is what lets a failed or
+    # interrupted run (a reboot landing mid-script, a transient network blip
+    # right after boot) simply try again on the next boot instead of being
+    # permanently stranded. Only a genuinely successful run removes it.
     # Re-thrown so the caller (schtasks-launched, effectively detached - see
     # this script's own header comment - or the one-liner's own shell) still
     # sees a real failure - this log is what explains WHY, since the exit code
@@ -259,5 +275,8 @@ Write-Step "Done. This machine is now reachable in DeployCore Remote Management 
     throw
 }
 
+# Only reached on full success - see the catch block's own comment for why
+# failure deliberately leaves the Scheduled Task in place instead of cleaning
+# it up here too.
 Remove-AgentTask
 Stop-Transcript | Out-Null

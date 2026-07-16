@@ -15,6 +15,20 @@ config (`hide-tray`, permanent-password unattended access), installs the
 service, generates a local permanent password, and enrolls the machine back
 with DeployCore.
 
+**It deliberately does NOT use RustDesk's own `--install-service` CLI flag.**
+Confirmed via RustDesk's actual source (`platform/windows.rs`,
+`install_service()`): that flag wraps the real work (`sc create`/`start`, plus
+copying a tray shortcut into the all-users Startup folder - not something we
+want either, see "Branding" below) in a call through Rust's `runas` crate with
+`force_prompt(true)`, which unconditionally tries to show a UAC-style
+elevation prompt - even when the caller is already SYSTEM. In a Session-0/
+no-desktop context (a Scheduled Task, or any unattended deployment - a
+provisioned VM never has anyone logged into the console) that prompt can
+never be shown or dismissed, so the call hangs forever. Confirmed live: the
+transcript log stopped dead at "Installing service..." with no error, ever.
+The script instead runs the same underlying `sc.exe` commands directly - no
+elevation dance, no hang.
+
 It's delivered two ways, both using that same script:
 
 1. **One-liner (easiest, no download).** The Remote Management tab shows a
@@ -61,6 +75,28 @@ upload the `.msi` as a global App Asset yourself, then **Set as agent**.
 > reach a live DeployCore server) is still worth eyeballing on a throwaway VM.
 > The PowerShell one-liner path depends on none of this and is the guaranteed
 > install method.
+
+## Surviving the deployment pipeline's own reboot
+
+When attached to a template, `provision.py` waits only for this wrapper
+`.msi`'s own quick self-install to report done - not for the agent's real
+work (downloading/installing RustDesk, enrolling), which runs afterward in a
+detached Scheduled Task (see "Why not run directly from a custom action"
+above). But the deployment pipeline does one unconditional final reboot
+("rebooting to finalize configuration") once it considers all app installs
+done - which, from its point of view, this one already is. That reboot can
+land while the background task is still mid-flight, killing it (confirmed
+live: the transcript stopped mid-RustDesk-install with `TerminatingError():
+"Die Pipeline wurde beendet."` - "the pipeline was terminated").
+
+The task is registered with an **ONSTART** trigger (not just a one-time
+immediate one), so if a reboot does interrupt it, it simply runs again on the
+next boot. `remote_agent_install.ps1` is written to make that safe: every
+step is idempotent (RustDesk's install is skipped if already present, the
+service (re)creation just recreates cleanly, enrollment is explicitly safe to
+call more than once), and the script only deletes its own Scheduled Task on a
+fully successful run - a failed or interrupted attempt leaves it registered
+so the next boot gets another try.
 
 ## Branding — RustDesk should be invisible, not a second "DeployCore" program
 

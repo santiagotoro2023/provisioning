@@ -30,11 +30,12 @@
      the target VM's internet access, which was also fine.
 
   The fix for both: the custom actions below (scheduled after InstallFiles,
-  a valid position, not after InstallFinalize) register a one-time Scheduled
-  Task (as SYSTEM) and immediately trigger it, then return right away - the
-  outer MSI finishes normally in moments, and the actual RustDesk install +
-  enrollment runs seconds later from Task Scheduler, fully outside any MSI
-  transaction, sidestepping the mutex concern too.
+  a valid position, not after InstallFinalize) register a Scheduled Task (as
+  SYSTEM, triggered ONSTART - see its own comment for why not ONCE) and
+  immediately trigger it too, then return right away - the outer MSI finishes
+  normally in moments, and the actual RustDesk install + enrollment runs
+  seconds later from Task Scheduler, fully outside any MSI transaction,
+  sidestepping the mutex concern too.
 
   The MSI also bundles the DeployCore-branded tray companion (DeployCoreTray.exe)
   and its icon (deploycore.ico) - both produced by CI from remote-agent/tray/,
@@ -133,11 +134,28 @@
       <ComponentRef Id="TrayApp" />
     </Feature>
 
-    <!-- Registers a one-time Scheduled Task pointed at RunAgentInstall.cmd
+    <!-- Registers a Scheduled Task pointed at RunAgentInstall.cmd
          (SERVERURL/ENROLLTOKEN passed as its two arguments), running as
          SYSTEM. /f suppresses any "already exists" prompt (harmless on a
          reinstall/repair). Deliberately does NOT run yet - see RunAgentTask
          below and this file's header comment for why the two are split.
+
+         Trigger is ONSTART (with a 30s delay for networking to come up), NOT
+         ONCE - confirmed necessary live: the DeployCore deployment pipeline
+         does an unconditional final reboot ("rebooting to finalize
+         configuration") once every app install, including this one, reports
+         done - which happens fast, since installing THIS wrapper .msi is all
+         provision.py actually waits on, not the agent's own real work running
+         in the background task this registers. That reboot killed the task
+         mid-flight on a real deployment (confirmed via its own transcript
+         log: "Die Pipeline wurde beendet." mid-RustDesk-install). An ONSTART
+         trigger means the task simply resumes on the next boot if that
+         happens - Install-DeployCoreAgent.ps1 is written to be safely re-run
+         (skips work already done, and enrollment itself is idempotent), and
+         it only self-deletes this task on a fully successful run (see its
+         own Remove-AgentTask calls), so a reboot mid-flight doesn't strand it
+         registered-but-abandoned.
+
          Runs even under SKIPRUN=1 (registering a task has no live-server
          dependency) so CI's smoke test can verify this command's quoting is
          actually correct without needing a real DeployCore server. -->
@@ -145,7 +163,7 @@
         Id="RegisterAgentTask"
         Before="RegisterAgentTask"
         Sequence="execute"
-        Value="&quot;[System64Folder]schtasks.exe&quot; /create /f /ru SYSTEM /sc ONCE /st 00:00 /tn DeployCoreAgentInstall /tr &quot;\&quot;[INSTALLFOLDER]RunAgentInstall.cmd\&quot; \&quot;[SERVERURL]\&quot; \&quot;[ENROLLTOKEN]\&quot;&quot;" />
+        Value="&quot;[System64Folder]schtasks.exe&quot; /create /f /ru SYSTEM /sc onstart /delay 0000:30 /tn DeployCoreAgentInstall /tr &quot;\&quot;[INSTALLFOLDER]RunAgentInstall.cmd\&quot; \&quot;[SERVERURL]\&quot; \&quot;[ENROLLTOKEN]\&quot;&quot;" />
     <CustomAction
         Id="RegisterAgentTask"
         BinaryRef="Wix4UtilCA_X64"
