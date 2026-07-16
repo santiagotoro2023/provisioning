@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, Copy, Download, MonitorSmartphone, Pencil, Plus, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, getToken } from "../api/client";
 import Badge from "../components/Badge";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DataTable from "../components/DataTable";
@@ -464,6 +464,22 @@ function InstallCommandModal({
   onClose: () => void;
 }) {
   const downloadUrl = `/api/organizations/${orgId}/managed-hosts/agent-installer`;
+  // Plain <a href> can't carry the Authorization header this route requires
+  // (token-based auth, no session cookie) - the browser's own top-level
+  // navigation sends no Authorization at all, so a bare link always 401s.
+  // Fetch with the token instead and hand the browser a blob URL, same
+  // pattern as Settings.tsx's downloadBackup().
+  async function downloadMsi() {
+    const res = await fetch(downloadUrl, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "DeployCoreRemoteAgent.msi";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
   // The SAME address the automated deployment pipeline uses for a freshly
   // provisioned VM (provision.py's own SERVERURL, from config.app_public_url)
   // - not window.location.origin, which is just whatever address the
@@ -505,13 +521,14 @@ function InstallCommandModal({
           <span className="h-px flex-1 bg-neutral-200 dark:bg-neutral-800" />
         </div>
 
-        <a
-          href={downloadUrl}
+        <button
+          type="button"
+          onClick={downloadMsi}
           className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
         >
           <Download size={14} strokeWidth={1.75} />
           Download DeployCoreRemoteAgent.msi
-        </a>
+        </button>
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
           Then run (as Administrator, from the download folder)
         </label>
