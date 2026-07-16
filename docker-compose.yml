@@ -141,7 +141,18 @@ services:
       # against whatever origin the browser is already on - exactly the
       # existing same-origin Caddy proxy, for any operator, from any machine.
       - RUSTDESK_API_RUSTDESK_API_SERVER=
-      - RUSTDESK_API_KEY_FILE=/data/id_ed25519.pub
+      # Was RUSTDESK_API_KEY_FILE - missing the "RUSTDESK_" segment every
+      # other Rustdesk.* setting above has. rustdesk-api's own config loader
+      # (config/config.go: SetEnvPrefix("RUSTDESK_API") over a nested
+      # Rustdesk.KeyFile field, mapstructure tag "key-file") only ever binds
+      # RUSTDESK_API_RUSTDESK_KEY_FILE - the old name silently matched
+      # nothing, so Config.Rustdesk.Key stayed permanently empty and every
+      # /api/shared-peer response handed the web client an empty license
+      # key. hbbs runs ENCRYPTED_ONLY=1 and rejects that outright - the
+      # actual cause of "Schlüssel stimmen nicht überein" (key mismatch),
+      # confirmed live, not guessed: reproduced in a fresh private window
+      # (ruling out stale cached peer data) before tracing it to this typo.
+      - RUSTDESK_API_RUSTDESK_KEY_FILE=/data/id_ed25519.pub
       - RUSTDESK_API_JWT_KEY=${RUSTDESK_JWT_KEY}
       # Some of rustdesk-api's own error strings (e.g. its CAPTCHA-required
       # message) pass straight through into DeployCore's own error surfaces
