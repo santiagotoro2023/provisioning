@@ -159,13 +159,43 @@ hide-tray = 'Y'
 verification-method = 'use-permanent-password'
 allow-hide-cm = 'Y'
 "@ | Set-Content -Path (Join-Path $confDir "RustDesk2.toml") -Encoding UTF8 -Force
+$configPath = Join-Path $confDir "RustDesk2.toml"
 
 # 4. Install as a service (persists through logout/reboot; reachable at the
 #    login screen) and set a locally-generated permanent password. The password
 #    is minted here on the machine and only ever leaves it over the HTTPS enroll
 #    call below - DeployCore never chooses it.
+#
+#    Deliberately NOT using RustDesk's own `--install-service` CLI flag here -
+#    confirmed via its actual source (platform/windows.rs install_service())
+#    that it wraps the real work (sc create/start, plus copying a tray
+#    shortcut into the all-users Startup folder, which we don't want at all -
+#    see the hiding step below) in a call through Rust's `runas` crate with
+#    force_prompt(true), which unconditionally tries to show a UAC-style
+#    elevation prompt EVEN THOUGH this process is already SYSTEM. In a
+#    Session-0/no-desktop context - this scheduled task, and any unattended
+#    deployment with nobody logged into the console - that prompt can never
+#    be shown or dismissed, so the whole call hangs forever: confirmed live,
+#    the transcript stopped dead at "Installing service..." with no error,
+#    ever. Since this process is already SYSTEM, none of that elevation
+#    dance is needed - just run the same sc.exe commands directly.
 Write-Step "Installing service..."
-Start-Process $RustDeskExe -ArgumentList "--install-service" -Wait
+# RustDesk imports its config into the service context via a one-shot,
+# throwaway service (not a raw file copy) - mirrored here exactly, since
+# RustDesk's own code treats this as the real mechanism, not an assumption
+# that our own file write alone is equivalent.
+& sc.exe stop RustDesk 2>&1 | Out-Null
+& sc.exe delete RustDesk 2>&1 | Out-Null
+& sc.exe create RustDesk binpath= "`"$RustDeskExe`" --import-config `"$configPath`"" start= auto DisplayName= "RustDesk Service" | Out-Null
+& sc.exe start RustDesk | Out-Null
+Start-Sleep -Seconds 2
+& sc.exe stop RustDesk 2>&1 | Out-Null
+& sc.exe delete RustDesk 2>&1 | Out-Null
+
+& sc.exe create RustDesk binpath= "`"$RustDeskExe`" --service" start= auto DisplayName= "RustDesk Service" | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "sc create RustDesk failed with exit code $LASTEXITCODE" }
+& sc.exe start RustDesk | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "sc start RustDesk failed with exit code $LASTEXITCODE" }
 Start-Sleep -Seconds 3
 
 $bytes = New-Object 'System.Byte[]' 18
