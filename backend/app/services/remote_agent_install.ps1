@@ -220,7 +220,6 @@ hide-tray = 'Y'
 verification-method = 'use-permanent-password'
 allow-hide-cm = 'Y'
 "@ | Set-Content -Path (Join-Path $confDir "RustDesk2.toml") -Encoding UTF8 -Force
-$configPath = Join-Path $confDir "RustDesk2.toml"
 
 # 4. Install as a service (persists through logout/reboot; reachable at the
 #    login screen) and set a locally-generated permanent password. The password
@@ -241,87 +240,77 @@ $configPath = Join-Path $confDir "RustDesk2.toml"
 #    ever. Since this process is already SYSTEM, none of that elevation
 #    dance is needed - just run the same sc.exe commands directly.
 Write-Step "Installing service..."
-# RustDesk imports its config into the service context via a one-shot,
-# throwaway service (not a raw file copy) - mirrored here exactly, since
-# RustDesk's own code treats this as the real mechanism, not an assumption
-# that our own file write alone is equivalent.
+# Earlier versions of this script also created a THROWAWAY service pointed
+# at `--import-config` first (mirroring RustDesk's own install_service() in
+# platform/windows.rs), on the assumption that was the real mechanism for
+# getting our config into the service's context, not just our own direct
+# file write above. Confirmed via RustDesk's actual source
+# (src/core_main.rs's import_config()) that this was never doing anything
+# for us: it loads the FIRST (unsuffixed, "RustDesk.toml") path argument as
+# `Config`, and returns IMMEDIATELY if that's empty - `if config.is_empty()
+# { return; }` - before ever touching the "2.toml"/Config2 file our actual
+# settings (hide-tray, verification-method, etc.) live in. We never write an
+# unsuffixed RustDesk.toml at all (there's no user identity to migrate in a
+# headless deployment - RustDesk generates a fresh ID on first run, which is
+# exactly what we want), so that check was ALWAYS true and the whole
+# throwaway-service step ALWAYS returned immediately having done nothing -
+# not a regression, just dead weight copied from a reference implementation
+# built for a different scenario (converting an already-configured
+# interactive install into a service). Our own direct write to
+# $env:APPDATA\RustDesk\config\RustDesk2.toml above is what actually seeds
+# the config; removing this step also removes an extra service
+# create/start/stop/delete cycle immediately before the one that matters.
 #
-# Uses New-Service, not `sc.exe create`, for the two calls below that embed
-# a quoted, space-containing exe path INSIDE another quoted argument
-# (`binpath= "\"$RustDeskExe\" --service"`) - confirmed live as a real bug:
-# Windows PowerShell 5.1's argument-passing to a native console executable
-# does not reliably re-serialize a backtick-escaped nested quote for the
-# child process's own command-line parser, and `sc.exe` rejected the
-# resulting mangled command line with exit 1639 ("invalid command line
-# argument") - the actual cause of every "installing service..." point this
-# script silently died at or errored at, this whole session, once every
-# earlier blocker (the scheduled task never even reaching this far) was
-# fixed. New-Service takes -BinaryPathName as a real string value passed
-# directly to the Service Control Manager API, never round-tripped through
-# a re-parsed command line at all - the same "eliminate the quoting risk by
-# construction" fix already applied twice elsewhere in this agent (SERVERURL/
-# ENROLLTOKEN via agent-params.ini, the scheduled task's own /tr target).
-# `sc.exe stop`/`delete` calls are untouched - a bare service name has no
-# spaces or nested quotes to mangle, so they were never actually at risk.
+# Uses New-Service, not `sc.exe create`, for the same reason as before:
+# `sc.exe create RustDesk binpath= "\"$RustDeskExe\" --service" ...` embeds a
+# quoted, space-containing exe path INSIDE another quoted argument - confirmed
+# live as a real bug, Windows PowerShell 5.1's argument-passing to a native
+# console executable does not reliably re-serialize a backtick-escaped nested
+# quote for the child process's own command-line parser, and `sc.exe` rejected
+# the resulting mangled command line with exit 1639 ("invalid command line
+# argument"). New-Service takes -BinaryPathName as a real string value passed
+# directly to the Service Control Manager API, never round-tripped through a
+# re-parsed command line at all.
 & sc.exe stop RustDesk 2>&1 | Out-Null
 & sc.exe delete RustDesk 2>&1 | Out-Null
-Write-Step "Creating the throwaway import-config service..."
-New-Service -Name RustDesk -BinaryPathName "`"$RustDeskExe`" --import-config `"$configPath`"" -DisplayName "RustDesk Service" -StartupType Automatic | Out-Null
-Write-Step "Starting the throwaway import-config service..."
-# This throwaway service's only job is to run --import-config briefly and
-# exit while RustDesk writes out its config - not to stay running - so a
-# "failed to start" here (it may exit before SCM even considers it started)
-# is expected, not an error. The original `sc.exe start ... | Out-Null`
-# never checked this exit code either; -ErrorAction SilentlyContinue keeps
-# that same tolerance now that Start-Service (unlike a bare native-exe call
-# whose exit code goes unchecked) throws by default.
-Start-Service -Name RustDesk -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-& sc.exe stop RustDesk 2>&1 | Out-Null
-& sc.exe delete RustDesk 2>&1 | Out-Null
-# sc.exe delete only MARKS a service for deletion - it doesn't complete
-# until every open handle to it closes, which isn't guaranteed to happen
-# within the same instant the command returns. A brief wait here (confirmed
-# not present before) gives Windows a chance to actually finish removing it
-# before the next New-Service tries to recreate the exact same service name.
+# sc.exe delete only MARKS a service for deletion - it doesn't complete until
+# every open handle to it closes, which isn't guaranteed to happen within the
+# same instant the command returns. Wait for it to actually disappear before
+# recreating the same service name (matters most on a retry, where a prior
+# attempt's service may still be tearing down).
 $deleteWaited = 0
 while ((Get-Service -Name RustDesk -ErrorAction SilentlyContinue) -and $deleteWaited -lt 10) {
     Start-Sleep -Milliseconds 500
     $deleteWaited += 0.5
 }
 
-Write-Step "Creating the real RustDesk service..."
+Write-Step "Creating the RustDesk service..."
 New-Service -Name RustDesk -BinaryPathName "`"$RustDeskExe`" --service" -DisplayName "RustDesk Service" -StartupType Automatic | Out-Null
-Write-Step "Starting the real RustDesk service..."
+Write-Step "Starting the RustDesk service..."
+# Not fatal on failure here, on purpose: RustDesk's own reference
+# get_create_service()/install_service() in platform/windows.rs runs `sc
+# create` then `sc start` back to back with NO exit-code check on either at
+# all - upstream itself doesn't treat an immediate "start" bookkeeping
+# failure as fatal, likely because StartupType=Automatic means it tries
+# again on next boot regardless, and a fresh service's very first start can
+# be a genuine SCM-registration timing race independent of anything actually
+# being wrong. `--get-id` a few lines below (which needs the service's IPC
+# to actually be up) is the REAL verification - if the service truly isn't
+# running, that fails with its own specific, clear error instead of this
+# generic one.
 try {
     Start-Service -Name RustDesk
 } catch {
     # The generic .NET ServiceController exception ("the service cannot be
     # started") hides the actual Win32 reason - surface Win32_Service's own
     # ExitCode/State (the Service Control Manager's real status for this
-    # exact service) and try running the binary directly for a few seconds
-    # as a fallback diagnostic, since a crash-on-launch, a missing
-    # dependency, or an AV block will usually show up immediately that way
-    # even when SCM's own error message doesn't say why.
+    # exact service) for whoever reads this log next, then continue rather
+    # than fail the whole install over what upstream itself doesn't check.
     $svcInfo = Get-CimInstance Win32_Service -Filter "Name='RustDesk'" -ErrorAction SilentlyContinue
-    Write-Step "Start-Service failed: $($_.Exception.Message)"
+    Write-Step "Start-Service reported failure (continuing - see --get-id below for the real check): $($_.Exception.Message)"
     if ($svcInfo) {
         Write-Step "Win32_Service state: State=$($svcInfo.State) ExitCode=$($svcInfo.ExitCode) StartMode=$($svcInfo.StartMode) PathName=$($svcInfo.PathName)"
     }
-    Write-Step "Attempting to run the binary directly for diagnosis..."
-    try {
-        $diagProc = Start-Process -FilePath $RustDeskExe -ArgumentList "--service" -PassThru -RedirectStandardError "$env:ProgramData\DeployCore\rustdesk-direct-stderr.log" -RedirectStandardOutput "$env:ProgramData\DeployCore\rustdesk-direct-stdout.log"
-        Start-Sleep -Seconds 3
-        if ($diagProc.HasExited) {
-            Write-Step "Direct run exited immediately with code $($diagProc.ExitCode) - see rustdesk-direct-std*.log next to this transcript"
-        } else {
-            Write-Step "Direct run is still running after 3s (PID $($diagProc.Id)) - the binary itself launches fine, so the problem is specific to how the Service Control Manager is starting it"
-            Stop-Process -Id $diagProc.Id -Force -ErrorAction SilentlyContinue
-        }
-    } catch {
-        Write-Step "Direct run also failed: $($_.Exception.Message)"
-    }
-    throw
 }
 Start-Sleep -Seconds 3
 
