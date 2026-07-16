@@ -55,6 +55,31 @@ function Get-FreeLetter {
     68..90 | ForEach-Object { [char]$_ } | Where-Object { -not (Get-Volume -DriveLetter $_ -ErrorAction SilentlyContinue) } | Select-Object -First 1
 }
 
+# Marks a partition as the recognized recovery partition: the type GUID alone
+# (Set-Partition -GptType) is enough for reagentc/WinRE to work, but Disk
+# Management's "Healthy (Recovery Partition)" label additionally needs the
+# GPT_ATTRIBUTE_PLATFORM_REQUIRED bit (bit 0) set - confirmed live (WinRE
+# worked, Disk Management still showed a plain partition) and matches
+# Microsoft's own documented recipe (gpt attributes=0x8000000000000001,
+# i.e. NO_DRIVE_LETTER | PLATFORM_REQUIRED). The Storage module's
+# Set-Partition has no switch for that bit - -IsHidden/-NoDefaultDriveLetter
+# only cover HIDDEN (bit 62) and NO_DRIVE_LETTER (bit 63) - so diskpart is
+# the only reliable unattended way to set it.
+function Set-RecoveryPartitionAttributes($partitionNumber, [string]$recoveryTypeGuid) {
+    Set-Partition -DiskNumber 0 -PartitionNumber $partitionNumber -GptType $recoveryTypeGuid
+    Set-Partition -DiskNumber 0 -PartitionNumber $partitionNumber -IsHidden $true -NoDefaultDriveLetter $true
+    $diskpartScript = @"
+select disk 0
+select partition $partitionNumber
+gpt attributes=0x8000000000000001
+"@
+    $diskpartScriptPath = "C:\\Windows\\Temp\\deploycore_recovery_attrs.txt"
+    Set-Content -Path $diskpartScriptPath -Value $diskpartScript -Encoding ASCII
+    diskpart /s $diskpartScriptPath | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "diskpart failed to set GPT attributes on partition $partitionNumber (exit $LASTEXITCODE)" }
+    Remove-Item $diskpartScriptPath -Force -ErrorAction SilentlyContinue
+}
+
 $recoveryTypeGuid = '{de94bba4-06d1-4d40-a16a-bfd50179d6ac}'
 
 $osPartition = Get-Partition -DriveLetter C -ErrorAction SilentlyContinue
@@ -109,8 +134,7 @@ if ($source.Count -eq 0) {
     reagentc /enable
     if ($LASTEXITCODE -ne 0) { throw "reagentc /enable failed with exit code $LASTEXITCODE" }
     Remove-PartitionAccessPath -DiskNumber 0 -PartitionNumber $target.PartitionNumber -AccessPath "${targetLetter}:\\"
-    Set-Partition -DiskNumber 0 -PartitionNumber $target.PartitionNumber -GptType $recoveryTypeGuid
-    Set-Partition -DiskNumber 0 -PartitionNumber $target.PartitionNumber -IsHidden $true -NoDefaultDriveLetter $true
+    Set-RecoveryPartitionAttributes $target.PartitionNumber $recoveryTypeGuid
     Info "done - WinRE relocated from C: to partition $($target.PartitionNumber)."
     return
 }
@@ -141,8 +165,8 @@ if ($LASTEXITCODE -ne 0) { throw "reagentc /enable failed with exit code $LASTEX
 
 Info "typing, hiding, and removing the temporary drive letter from the relocated partition..."
 Remove-PartitionAccessPath -DiskNumber 0 -PartitionNumber $target.PartitionNumber -AccessPath "${targetLetter}:\\"
-Set-Partition -DiskNumber 0 -PartitionNumber $target.PartitionNumber -GptType $recoveryTypeGuid
-Set-Partition -DiskNumber 0 -PartitionNumber $target.PartitionNumber -IsHidden $true -NoDefaultDriveLetter $true
+Set-RecoveryPartitionAttributes $target.PartitionNumber $recoveryTypeGuid
+Info "GPT attributes set to 0x8000000000000001 (no-drive-letter + platform-required) on partition $($target.PartitionNumber)"
 
 Info "deleting Setup's own recovery partition and extending C: into the freed space..."
 Remove-PartitionAccessPath -DiskNumber 0 -PartitionNumber $src.PartitionNumber -AccessPath "${sourceLetter}:\\" -ErrorAction SilentlyContinue
