@@ -245,18 +245,34 @@ Write-Step "Installing service..."
 # throwaway service (not a raw file copy) - mirrored here exactly, since
 # RustDesk's own code treats this as the real mechanism, not an assumption
 # that our own file write alone is equivalent.
+#
+# Uses New-Service, not `sc.exe create`, for the two calls below that embed
+# a quoted, space-containing exe path INSIDE another quoted argument
+# (`binpath= "\"$RustDeskExe\" --service"`) - confirmed live as a real bug:
+# Windows PowerShell 5.1's argument-passing to a native console executable
+# does not reliably re-serialize a backtick-escaped nested quote for the
+# child process's own command-line parser, and `sc.exe` rejected the
+# resulting mangled command line with exit 1639 ("invalid command line
+# argument") - the actual cause of every "installing service..." point this
+# script silently died at or errored at, this whole session, once every
+# earlier blocker (the scheduled task never even reaching this far) was
+# fixed. New-Service takes -BinaryPathName as a real string value passed
+# directly to the Service Control Manager API, never round-tripped through
+# a re-parsed command line at all - the same "eliminate the quoting risk by
+# construction" fix already applied twice elsewhere in this agent (SERVERURL/
+# ENROLLTOKEN via agent-params.ini, the scheduled task's own /tr target).
+# `sc.exe stop`/`delete` calls are untouched - a bare service name has no
+# spaces or nested quotes to mangle, so they were never actually at risk.
 & sc.exe stop RustDesk 2>&1 | Out-Null
 & sc.exe delete RustDesk 2>&1 | Out-Null
-& sc.exe create RustDesk binpath= "`"$RustDeskExe`" --import-config `"$configPath`"" start= auto DisplayName= "RustDesk Service" | Out-Null
-& sc.exe start RustDesk | Out-Null
+New-Service -Name RustDesk -BinaryPathName "`"$RustDeskExe`" --import-config `"$configPath`"" -DisplayName "RustDesk Service" -StartupType Automatic | Out-Null
+Start-Service -Name RustDesk
 Start-Sleep -Seconds 2
 & sc.exe stop RustDesk 2>&1 | Out-Null
 & sc.exe delete RustDesk 2>&1 | Out-Null
 
-& sc.exe create RustDesk binpath= "`"$RustDeskExe`" --service" start= auto DisplayName= "RustDesk Service" | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "sc create RustDesk failed with exit code $LASTEXITCODE" }
-& sc.exe start RustDesk | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "sc start RustDesk failed with exit code $LASTEXITCODE" }
+New-Service -Name RustDesk -BinaryPathName "`"$RustDeskExe`" --service" -DisplayName "RustDesk Service" -StartupType Automatic | Out-Null
+Start-Service -Name RustDesk
 Start-Sleep -Seconds 3
 
 $bytes = New-Object 'System.Byte[]' 18
