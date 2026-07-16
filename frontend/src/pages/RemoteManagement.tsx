@@ -272,31 +272,36 @@ docker compose exec -w /app rustdesk ./apimain reset-admin-pwd "$(grep '^RUSTDES
       {ready && (
         <details className="border-t border-neutral-200 px-4 py-2 text-xs text-neutral-500 dark:border-neutral-800">
           <summary className="cursor-pointer">
-            Using the default self-signed certificate? Install{" "}
-            <a
-              href={`${window.location.origin}/ca.crt`}
-              className="text-blue-600 hover:underline dark:text-blue-400"
-              onClick={(e) => e.stopPropagation()}
-            >
-              this instance's certificate authority
-            </a>{" "}
-            as a trusted root on each machine that'll use Remote Management, once - otherwise Connect/Shadow will
-            silently fail to load (a browser won't let you click through a certificate warning inside an embedded
-            frame).
+            Using the default self-signed certificate? Trust this instance's certificate authority once per
+            machine that'll use Remote Management - otherwise Connect/Shadow silently fail to load (a browser
+            won't let you click through a certificate warning inside an embedded frame). One command, no download
+            wizard - run as Administrator (Windows) or with sudo (macOS/Linux). Push it fleet-wide via GPO/RMM/MDM
+            startup scripts if you manage more than a couple of machines.
           </summary>
-          <div className="mt-2 space-y-1 pl-4">
-            <p>
-              <strong>Windows:</strong> double-click the downloaded <code>deploycore-ca.crt</code> → Install
-              Certificate → Local Machine → "Place all certificates in the following store" → Trusted Root
-              Certification Authorities.
-            </p>
-            <p>
-              <strong>macOS:</strong> double-click the file to open it in Keychain Access, then set "When using this
-              certificate" to Always Trust.
-            </p>
-            <p>
-              <strong>Linux:</strong> copy it into <code>/usr/local/share/ca-certificates/</code> and run{" "}
-              <code>update-ca-certificates</code> (Debian/Ubuntu) - other distros have their own equivalent.
+          <div className="mt-2 space-y-3 pl-4">
+            <div>
+              <p className="mb-1 font-medium text-neutral-600 dark:text-neutral-400">Windows (PowerShell, as Administrator)</p>
+              <CopyableCommand
+                command={`[System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}; Invoke-WebRequest ${window.location.origin}/ca.crt -OutFile "$env:TEMP\\deploycore-ca.crt"; Import-Certificate -FilePath "$env:TEMP\\deploycore-ca.crt" -CertStoreLocation Cert:\\LocalMachine\\Root`}
+              />
+            </div>
+            <div>
+              <p className="mb-1 font-medium text-neutral-600 dark:text-neutral-400">macOS</p>
+              <CopyableCommand
+                command={`curl -sk ${window.location.origin}/ca.crt -o /tmp/deploycore-ca.crt && sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/deploycore-ca.crt`}
+              />
+            </div>
+            <div>
+              <p className="mb-1 font-medium text-neutral-600 dark:text-neutral-400">Linux (Debian/Ubuntu - other distros have their own equivalent)</p>
+              <CopyableCommand
+                command={`curl -sk ${window.location.origin}/ca.crt -o /tmp/deploycore-ca.crt && sudo cp /tmp/deploycore-ca.crt /usr/local/share/ca-certificates/deploycore-ca.crt && sudo update-ca-certificates`}
+              />
+            </div>
+            <p className="text-neutral-400">
+              The <code>-k</code>/<code>ServerCertificateValidationCallback</code> bypass is only for this ONE
+              bootstrapping download of the certificate authority itself (which obviously isn't trusted yet) -
+              nothing else is weakened, and the whole point of installing it afterward is that no future
+              connection ever needs that bypass again.
             </p>
           </div>
         </details>

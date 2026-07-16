@@ -199,16 +199,26 @@ trust separately - and a browser flatly refuses to let you click through a
 certificate warning *inside* an embedded frame at all (the same
 restriction that stops a malicious page from tricking someone into
 trusting a bad cert), so without doing anything Connect/Shadow just stays
-blank with no obvious next step. Rather than visiting each port directly,
-install `https://<this-instance>/ca.crt` - Caddy's own locally-generated
-Certificate Authority root - as a trusted root once per machine that'll
-use Remote Management (Windows: double-click → Install Certificate →
-Local Machine → Trusted Root Certification Authorities; macOS: open in
-Keychain Access → Always Trust; Linux: copy into
-`/usr/local/share/ca-certificates/` and run `update-ca-certificates`).
-That one install then trusts every certificate this instance issues, on
-every port, forever - not just this one. Not needed at all once a real
-uploaded certificate is in use.
+blank with no obvious next step. This is a hard limit of how TLS trust
+works, not something DeployCore's own code can route around - a server
+can't unilaterally make a browser trust it, and there's no way to make
+RustDesk's own bundled web client share DeployCore's own origin (its
+JavaScript makes calls to fixed paths that collide with DeployCore's own
+API). The only way to make a self-signed certificate trusted with zero
+per-machine steps at all is a real domain name + an automatically-issued
+Let's Encrypt certificate, which needs DNS you control - not an option for
+a bare LAN IP with no domain.
+
+Given that, the smallest possible one-time step: the Remote Management
+page's own "Using the default self-signed certificate?" section has a
+copy-paste **one-line command per OS** that downloads and installs Caddy's
+own locally-generated Certificate Authority root as a trusted root -
+Windows (PowerShell, as Administrator), macOS, and Linux. Run once per
+machine that'll use Remote Management (push it fleet-wide via a GPO
+startup script, RMM, or MDM if you manage more than a couple), and that
+machine trusts every certificate this instance issues, on every port,
+forever - not a per-site exception for just this one session. Not needed
+at all once a real uploaded certificate is in use.
 
 This is handled by a small `proxy` service (Caddy) in front of the rest of
 the stack: it terminates TLS on 443 and redirects 80 to it, forwarding
