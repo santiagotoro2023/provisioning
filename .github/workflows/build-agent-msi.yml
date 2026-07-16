@@ -91,7 +91,18 @@ jobs:
           $testUrl = "http://smoketest.example.com:8000"
           $testToken = "smoketesttoken123"
           $p = Start-Process msiexec.exe -ArgumentList "/i", "`"$msi`"", "/qn", "SKIPRUN=1", "SERVERURL=`"$testUrl`"", "ENROLLTOKEN=$testToken", "/l*v", "install.log" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 40; throw "MSI install failed with exit code $($p.ExitCode)" }
+          if ($p.ExitCode -ne 0) {
+              # The last 40 lines are just the engine's generic property-dump
+              # trailer, not the actual cause (confirmed - it hid the real
+              # error entirely on the first run of this smoke test). Print
+              # every custom-action start/end/return line, which is where the
+              # real failure shows, plus a much bigger tail as a fallback.
+              Write-Host "--- custom action trace ---"
+              Get-Content install.log | Select-String "^Action start|^Action ended|Return value|CustomAction|Error \d|^MSI \(c\)" | ForEach-Object { Write-Host $_.Line }
+              Write-Host "--- last 200 lines of install.log ---"
+              Get-Content install.log -Tail 200
+              throw "MSI install failed with exit code $($p.ExitCode)"
+          }
           $installDir = Join-Path ${env:ProgramFiles} "DeployCore Remote Management Agent"
           $script = Join-Path $installDir "Install-DeployCoreAgent.ps1"
           $runCmd = Join-Path $installDir "RunAgentInstall.cmd"
@@ -111,6 +122,17 @@ jobs:
 
           Start-Process msiexec.exe -ArgumentList "/x", "`"$msi`"", "/qn" -Wait
           Write-Host "Smoke test passed."
+
+      # Always, pass or fail - a failure needs the full log to diagnose (the
+      # console tail alone hid the real cause of the first real failure), and
+      # keeping it on success too costs nothing and means it's already there
+      # if a later, different failure needs it.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: install-log
+          path: remote-agent/wix/install.log
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:
