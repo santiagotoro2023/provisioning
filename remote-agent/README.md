@@ -120,10 +120,17 @@ defeats the point.
 - **RustDesk's own Add/Remove Programs entry** — `SystemComponent=1` on its
   uninstall registry key, the standard mechanism bundled/dependency installers
   use to keep a product out of the visible list entirely. Not renamed - hidden.
-- **Desktop/Start Menu shortcuts and the virtual printer** — suppressed via
-  documented RustDesk MSI properties (`CREATEDESKTOPSHORTCUTS=N` etc.), plus a
-  belt-and-suspenders sweep that deletes any `RustDesk.lnk` left behind anyway
-  (confirmed some builds ignore the properties) across every user profile.
+- **Desktop/Start Menu/Startup shortcuts and the virtual printer** — suppressed
+  via the REAL properties RustDesk's own component Conditions check
+  (`DESKTOPSHORTCUTS=0`, `STARTMENUSHORTCUTS=0`, `STARTUPSHORTCUTS=0`,
+  confirmed directly against its WiX source, not the `CREATE*`/`INSTALL*`
+  names an earlier version of this file used based on stale third-party docs
+  that were never checked against source). `STARTUPSHORTCUTS` specifically is
+  what stops a "RustDesk Tray" auto-launch shortcut landing in the Startup
+  folder - confirmed live as a second, unbranded tray icon on every logon,
+  entirely unrelated to `--install-service`. Also a belt-and-suspenders sweep
+  that deletes any `RustDesk.lnk` left behind anyway, across every user
+  profile.
 - **An auto-launched interactive GUI window and its tray icon** — confirmed
   live: some RustDesk builds auto-launch the GUI right after install,
   regardless of the shortcut properties, running as whichever user happens to

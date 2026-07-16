@@ -110,10 +110,25 @@ $cfg = Invoke-RestMethod -Uri "$ServerUrl/api/remote/agent-config/$EnrollToken" 
 #    from in the first place. Only the one-liner path (a human running this
 #    manually, normally with their own internet) ever needs the download.
 # No shortcuts, no printer - RustDesk is meant to be invisible, absorbed into
-# "the Agent" rather than a second visible program (documented RustDesk MSI
-# properties; default is to create a desktop shortcut, which is exactly the
-# stray icon a real install surfaced).
-$noTraceArgs = "CREATESTARTMENUSHORTCUTS=`"N`"", "CREATEDESKTOPSHORTCUTS=`"N`"", "INSTALLPRINTER=`"N`""
+# "the Agent" rather than a second visible program. These are the REAL public
+# properties RustDesk's own component Conditions check (confirmed directly
+# against its WiX source, res/msi/Package/Fragments/ShortcutProperties.wxs
+# and Components/RustDesk.wxs) - NOT "CREATEDESKTOPSHORTCUTS"/
+# "CREATESTARTMENUSHORTCUTS"/"INSTALLPRINTER", which is what an earlier
+# version of this script passed based on stale third-party documentation that
+# was never checked against the actual source. Those DO exist as properties,
+# but only feed an indirect RegistrySearch/SetProperty chain that (for
+# reasons not fully root-caused) didn't reliably take effect - the shortcuts
+# kept installing anyway on a real deployment despite them being set. Setting
+# the real, directly-checked properties sidesteps that chain entirely.
+# STARTUPSHORTCUTS specifically controls a "RustDesk Tray" auto-launch
+# shortcut RustDesk's own MSI installs into the Startup folder directly -
+# this is what was producing a second, unbranded tray icon at every logon,
+# entirely independent of anything --install-service-related.
+# All three only compare against the literal values 1/"Y"/"y" (Startup
+# shortcuts checks only 1) to mean "install it" - anything else, including
+# 0, means don't.
+$noTraceArgs = "DESKTOPSHORTCUTS=0", "STARTMENUSHORTCUTS=0", "STARTUPSHORTCUTS=0"
 if (-not (Test-Path $RustDeskExe)) {
     $bundled = if ($PSScriptRoot) { Join-Path $PSScriptRoot "rustdesk-x86_64.msi" } else { $null }
     if ($bundled -and (Test-Path $bundled)) {
