@@ -20,7 +20,14 @@ export default function RemoteSession() {
   const [showCreds, setShowCreds] = useState(false);
   const [rustdeskPassword, setRustdeskPassword] = useState<string | null>(null);
   const [showRustdeskPassword, setShowRustdeskPassword] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   const connect = useCallback(async () => {
     if (!selectedOrgId || !id) return;
@@ -117,19 +124,30 @@ export default function RemoteSession() {
   // 'adaptive' is RustDesk's own name for scale-to-fit (flutter/lib/consts.dart's
   // kRemoteViewStyleAdaptive) - the alternative, 'original', is the
   // unscaled 1:1 pixel mode causing the scrolling this is meant to avoid.
+  const setAdaptiveViewStyle = useCallback(() => {
+    const win = iframeRef.current?.contentWindow as (Window & { setByName?: (n: string, v: string) => void }) | undefined;
+    win?.setByName?.("option:session", JSON.stringify({ name: "view_style", value: "adaptive" }));
+  }, []);
+
   // Later than the navigation above (needs a live session, not just the
   // address book) and retried once more shortly after in case the first
   // call lands before that session actually exists yet - setByName itself
   // doesn't throw either way, there's just nothing listening until then.
   useEffect(() => {
     if (!embedUrl || !host?.rustdesk_id) return;
-    const setAdaptive = () => {
-      const win = iframeRef.current?.contentWindow as (Window & { setByName?: (n: string, v: string) => void }) | undefined;
-      win?.setByName?.("option:session", JSON.stringify({ name: "view_style", value: "adaptive" }));
-    };
-    const timers = [setTimeout(setAdaptive, 3000), setTimeout(setAdaptive, 5000)];
+    const timers = [setTimeout(setAdaptiveViewStyle, 3000), setTimeout(setAdaptiveViewStyle, 5000)];
     return () => timers.forEach(clearTimeout);
-  }, [embedUrl, host?.rustdesk_id]);
+  }, [embedUrl, host?.rustdesk_id, setAdaptiveViewStyle]);
+
+  // Entering/leaving fullscreen is itself a big resize, which the embedded
+  // client apparently treats as enough of a state change to fall back to
+  // 'original' (unscaled) again, the same reset that re-prompts for the
+  // password - reapplying here covers both at once, on the same trigger.
+  useEffect(() => {
+    if (!embedUrl) return;
+    const timer = setTimeout(setAdaptiveViewStyle, 500);
+    return () => clearTimeout(timer);
+  }, [isFullscreen, embedUrl, setAdaptiveViewStyle]);
 
   // "Connect" mode only: fetch this host's saved RDP credentials once the
   // session is up. No auto-type attempt (a prior postMessage-based one was
@@ -186,14 +204,16 @@ export default function RemoteSession() {
     setTimeout(() => setCopied((c) => (c === key ? null : c)), 1500);
   }
 
-  // Native browser fullscreen on the whole toolbar+viewer area (not just
-  // the header row) - Fullscreen only renders the fullscreened element and
-  // its descendants, so a ref on just the iframe's box (the original
-  // approach) hid the RustDesk-password/RDP-credentials panels and their
-  // copy buttons entirely the moment fullscreen engaged, right when the
-  // embedded client's own connection state reset (a big resize) and
-  // re-prompted for the password those panels exist to answer - confirmed
-  // live as exactly what "asks again but doesn't even offer it" was.
+  // Fullscreens the toolbar+viewer area, not just the iframe's own box -
+  // otherwise Fullscreen (which only renders the fullscreened element and
+  // its descendants) hid the credential panels' copy buttons entirely the
+  // moment it engaged, right when the embedded client's own connection
+  // state resets (a big resize) and re-prompts for the password those
+  // panels exist to answer. DeployCore's own toolbar/panels are then
+  // hidden WHILE fullscreen instead (isFullscreen, declared up top since
+  // the view-style effect above also needs it) - once requested, so a real
+  // password re-prompt in fullscreen just means pressing Escape once to
+  // reach the copy button, rather than never having anywhere to render at all.
   const fullscreenRef = useRef<HTMLDivElement>(null);
   function toggleFullscreen() {
     if (document.fullscreenElement) {
@@ -203,126 +223,118 @@ export default function RemoteSession() {
     }
   }
 
+  const hasCreds =
+    !!rustdeskPassword || (isConnectMode && !!rdpCreds && (!!rdpCreds.username || !!rdpCreds.password));
+
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-4 flex items-center gap-3">
-        <Link
-          to="/remote-management"
-          className="flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-50 dark:hover:bg-neutral-800"
-        >
-          <ArrowLeft size={12} strokeWidth={1.75} />
-          Back
-        </Link>
-        <h1 className="text-lg font-semibold">{host ? host.name : "Connecting..."}</h1>
-      </div>
+      {!isFullscreen && (
+        <div className="mb-2 flex items-center gap-3">
+          <Link
+            to="/remote-management"
+            className="flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-50 dark:hover:bg-neutral-800"
+          >
+            <ArrowLeft size={12} strokeWidth={1.75} />
+            Back
+          </Link>
+          <h1 className="text-sm font-semibold">{host ? host.name : "Connecting..."}</h1>
+        </div>
+      )}
 
-      {/* Fullscreens as a whole (toolbar + credential panels + viewer), not
+      {/* Fullscreens the toolbar + credential bar + viewer together, not
           just the viewer - Fullscreen only renders the fullscreened element
           and its descendants, so fullscreening just the iframe's box hid
-          the RustDesk-password/RDP-credentials panels entirely the moment
-          fullscreen engaged, right when the embedded client's own
-          connection state resets (a big resize) and re-prompts for the
-          password those panels exist to answer - confirmed live as exactly
-          what "asks again but doesn't even offer it" was. */}
+          the credential bar's copy buttons entirely the moment fullscreen
+          engaged, right when the embedded client's own connection state
+          resets (a big resize) and re-prompts for the password that bar
+          exists to answer. The toolbar and credential bar are hidden WHILE
+          fullscreen instead (isFullscreen), for a clean view - both stay
+          reachable via Escape if that reset happens again. */}
       <div ref={fullscreenRef} className="flex flex-1 flex-col bg-white dark:bg-neutral-950">
-        {host?.enrolled && (
-          <div className="mb-3 flex items-center justify-end gap-2">
+        {host?.enrolled && !isFullscreen && (
+          <div className="mb-2 flex items-center justify-end gap-1.5">
             <span
               className="hidden items-center gap-1 text-xs text-neutral-400 sm:flex"
               title="Copy on your computer and paste into the remote session (and vice-versa) - clipboard is shared automatically while connected."
             >
-              <ClipboardCheck size={13} strokeWidth={1.75} />
+              <ClipboardCheck size={12} strokeWidth={1.75} />
               Clipboard shared
             </span>
-            {rustdeskPassword && (
+            {hasCreds && (
               <button
-                className="flex items-center gap-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                title="Show the RustDesk connection password"
-                onClick={() => setShowRustdeskPassword(true)}
+                className="flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                title="Show connection credentials"
+                onClick={() => {
+                  setShowRustdeskPassword(true);
+                  setShowCreds(true);
+                }}
               >
-                <KeySquare size={14} strokeWidth={1.75} />
-                RustDesk password
-              </button>
-            )}
-            {isConnectMode && rdpCreds && (rdpCreds.username || rdpCreds.password) && (
-              <button
-                className="flex items-center gap-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                title="Show the saved RDP credentials"
-                onClick={() => setShowCreds(true)}
-              >
-                <KeySquare size={14} strokeWidth={1.75} />
-                RDP credentials
+                <KeySquare size={12} strokeWidth={1.75} />
+                Credentials
               </button>
             )}
             <button
-              className="flex items-center gap-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
+              className="flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
               title="Fullscreen"
               disabled={!embedUrl}
               onClick={toggleFullscreen}
             >
-              <Maximize size={14} strokeWidth={1.75} />
+              <Maximize size={12} strokeWidth={1.75} />
               Fullscreen
             </button>
             <button
-              className="flex items-center gap-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
+              className="flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
               title="Reconnect"
               disabled={connecting}
               onClick={connect}
             >
-              <RefreshCw size={14} strokeWidth={1.75} className={connecting ? "animate-spin" : ""} />
+              <RefreshCw size={12} strokeWidth={1.75} className={connecting ? "animate-spin" : ""} />
               Reconnect
             </button>
           </div>
         )}
 
-        {showRustdeskPassword && rustdeskPassword && (
-          <div className="mb-3 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm dark:border-blue-900 dark:bg-blue-950">
-            <button
-              className="flex shrink-0 items-center gap-1 rounded-md border border-blue-300 bg-white px-2 py-1 text-xs text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-neutral-900 dark:text-blue-400 dark:hover:bg-neutral-800"
-              onClick={() => copyToClipboard(rustdeskPassword, "rustdesk-password")}
-              title="Copy RustDesk password"
-            >
-              <Copy size={12} strokeWidth={1.75} />
-              {copied === "rustdesk-password" ? "Copied" : "••••••••"}
-            </button>
-            <button
-              className="ml-auto shrink-0 text-blue-400 hover:text-blue-600 dark:hover:text-blue-300"
-              title="Dismiss"
-              onClick={() => setShowRustdeskPassword(false)}
-            >
-              <X size={14} strokeWidth={1.75} />
-            </button>
-          </div>
-        )}
-
-        {isConnectMode && showCreds && rdpCreds && (rdpCreds.username || rdpCreds.password) && (
-          <div className="mb-3 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm dark:border-blue-900 dark:bg-blue-950">
-            {rdpCreds.username && (
+        {!isFullscreen && (showRustdeskPassword || showCreds) && hasCreds && (
+          <div className="mb-2 flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs dark:border-blue-900 dark:bg-blue-950">
+            {rustdeskPassword && (
               <button
-                className="flex shrink-0 items-center gap-1 rounded-md border border-blue-300 bg-white px-2 py-1 text-xs text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-neutral-900 dark:text-blue-400 dark:hover:bg-neutral-800"
-                onClick={() => copyToClipboard(rdpCreds.username ?? "", "rdp-username")}
-                title="Copy username"
+                className="flex shrink-0 items-center gap-1 rounded-md border border-blue-300 bg-white px-1.5 py-0.5 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-neutral-900 dark:text-blue-400 dark:hover:bg-neutral-800"
+                onClick={() => copyToClipboard(rustdeskPassword, "rustdesk-password")}
+                title="Copy RustDesk password"
               >
-                <Copy size={12} strokeWidth={1.75} />
+                <Copy size={11} strokeWidth={1.75} />
+                {copied === "rustdesk-password" ? "Copied" : "••••••••"}
+              </button>
+            )}
+            {isConnectMode && rdpCreds?.username && (
+              <button
+                className="flex shrink-0 items-center gap-1 rounded-md border border-blue-300 bg-white px-1.5 py-0.5 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-neutral-900 dark:text-blue-400 dark:hover:bg-neutral-800"
+                onClick={() => copyToClipboard(rdpCreds.username ?? "", "rdp-username")}
+                title="Copy RDP username"
+              >
+                <Copy size={11} strokeWidth={1.75} />
                 {copied === "rdp-username" ? "Copied" : rdpCreds.username}
               </button>
             )}
-            {rdpCreds.password && (
+            {isConnectMode && rdpCreds?.password && (
               <button
-                className="flex shrink-0 items-center gap-1 rounded-md border border-blue-300 bg-white px-2 py-1 text-xs text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-neutral-900 dark:text-blue-400 dark:hover:bg-neutral-800"
+                className="flex shrink-0 items-center gap-1 rounded-md border border-blue-300 bg-white px-1.5 py-0.5 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-neutral-900 dark:text-blue-400 dark:hover:bg-neutral-800"
                 onClick={() => copyToClipboard(rdpCreds.password ?? "", "rdp-password")}
-                title="Copy password"
+                title="Copy RDP password"
               >
-                <Copy size={12} strokeWidth={1.75} />
+                <Copy size={11} strokeWidth={1.75} />
                 {copied === "rdp-password" ? "Copied" : "••••••••"}
               </button>
             )}
             <button
               className="ml-auto shrink-0 text-blue-400 hover:text-blue-600 dark:hover:text-blue-300"
               title="Dismiss"
-              onClick={() => setShowCreds(false)}
+              onClick={() => {
+                setShowRustdeskPassword(false);
+                setShowCreds(false);
+              }}
             >
-              <X size={14} strokeWidth={1.75} />
+              <X size={13} strokeWidth={1.75} />
             </button>
           </div>
         )}
