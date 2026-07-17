@@ -201,6 +201,18 @@ export default function RemoteSession() {
   // session) makes it fire once per actual target, not repeatedly for the
   // same value.
   const lastResolutionRef = useRef<string | null>(null);
+  // Confirmed live this ALSO needs a hard time-based throttle, not just the
+  // same-value dedup above: right after connect, the page's own layout can
+  // still be settling (fonts, scrollbars, initial reflow), so the iframe's
+  // measured size can genuinely cross between two different
+  // nearestResolution buckets a couple of times within the first second or
+  // two - each one is a genuinely DIFFERENT target, so the dedup correctly
+  // lets each through, and each one still tears down and rebuilds the
+  // video stream (confirmed live: repeated "WebSocket already CLOSING/
+  // CLOSED" even with the dedup fix in place). Capping how often an actual
+  // change_resolution call can go out, independent of how many times
+  // different values get computed, stops that regardless of the cause.
+  const lastResolutionAtRef = useRef(0);
   const fitDisplayToWindow = useCallback(() => {
     const win = iframeRef.current?.contentWindow as
       | (Window & { setByName?: (n: string, v: string | number) => void })
@@ -227,8 +239,10 @@ export default function RemoteSession() {
     if (sessionReady && width && height) {
       const [w, h] = nearestResolution(width, height);
       const key = `${w}x${h}`;
-      if (lastResolutionRef.current !== key) {
+      const now = Date.now();
+      if (lastResolutionRef.current !== key && now - lastResolutionAtRef.current > 3000) {
         lastResolutionRef.current = key;
+        lastResolutionAtRef.current = now;
         trySet("change_resolution", JSON.stringify({ display: 0, width: w, height: h }));
       }
     }
@@ -259,6 +273,7 @@ export default function RemoteSession() {
   useEffect(() => {
     if (!embedUrl || !host?.rustdesk_id) return;
     lastResolutionRef.current = null;
+    lastResolutionAtRef.current = 0;
     let attempts = 0;
     const interval = setInterval(() => {
       fitDisplayToWindow();
