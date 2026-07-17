@@ -1,8 +1,8 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -204,3 +204,17 @@ async def delete_managed_host(
     )
     await db.delete(host)
     await db.commit()
+
+
+@router.post("/api/shared-peer", include_in_schema=False)
+async def shared_peer_proxy(request: Request) -> JSONResponse:
+    """Same path rustdesk-api itself registers (see proxy/entrypoint.sh's
+    comment on the matching Caddy handle block for why this is DeployCore's
+    own endpoint now, not a straight reverse_proxy to the rustdesk
+    container) - webclient2's own JS calls this directly, anonymously, no
+    DeployCore auth, exactly like it would call rustdesk-api's real one.
+    See remote_desktop.proxy_shared_peer for why this needs to exist at all
+    rather than just forwarding untouched."""
+    body = await request.body()
+    status_code, data = await remote_desktop.proxy_shared_peer(body, request.headers.get("host", ""))
+    return JSONResponse(content=data, status_code=status_code)

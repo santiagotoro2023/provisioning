@@ -289,3 +289,42 @@ async def create_session_url(rustdesk_id: str, rustdesk_password: str, host_name
         raise RemoteDesktopError("Remote session link was not issued by the RustDesk server.")
 
     return f"{public_url.rstrip('/')}/webclient2/#/?share_token={share_token}"
+
+
+async def proxy_shared_peer(body: bytes, browser_host: str) -> tuple[int, dict]:
+    """Anonymous pass-through for POST /api/shared-peer (see
+    proxy/entrypoint.sh's handle block, which routes here instead of
+    straight to the rustdesk container) - webclient2's own JS calls this
+    directly, no DeployCore auth involved, matching rustdesk-api's own
+    route registration outside any auth-gated group.
+
+    Rewrites the id_server field's hostname to match whatever host the
+    browser is actually using right now, in place of whatever
+    RUSTDESK_RELAY_HOST was set to at deploy time. Confirmed live this was
+    load-bearing, not cosmetic: webclient2's own connection code builds its
+    wss:// rendezvous URL from id_server's HOSTNAME combined with the
+    PAGE's OWN port (window.location.port), discarding id_server's own
+    port entirely - so an operator reaching DeployCore through anything
+    other than RUSTDESK_RELAY_HOST itself (a port-forward, a different DNS
+    name, a VPN/NAT path with a different address) got a wss:// target
+    that combined the wrong host with the wrong port and could never
+    possibly connect, even once every earlier same-origin/proxy fix was
+    correct. The port kept in the rewritten value doesn't matter for this
+    (the client discards it either way) - kept only so id_server stays a
+    well-formed host:port string for anything else that might parse it."""
+    settings = get_settings()
+    url = f"{settings.rustdesk_api_internal_url.rstrip('/')}/api/shared-peer"
+    async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+        resp = await client.post(url, content=body, headers={"Content-Type": "application/json"})
+    try:
+        data = resp.json()
+    except ValueError:
+        return resp.status_code, {}
+
+    if isinstance(data, dict) and isinstance(data.get("data"), dict):
+        id_server = data["data"].get("id_server")
+        browser_hostname = browser_host.split(":")[0] if browser_host else ""
+        if id_server and browser_hostname:
+            _, _, port = id_server.partition(":")
+            data["data"]["id_server"] = f"{browser_hostname}:{port}" if port else browser_hostname
+    return resp.status_code, data

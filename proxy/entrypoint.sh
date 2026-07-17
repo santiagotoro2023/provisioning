@@ -157,8 +157,22 @@ render_caddyfile() {
 	# /api/auth/*, not a bare /api/login, so there's no ambiguity for Caddy
 	# to resolve between the two apps' /api/* namespaces at all past this one
 	# specific path.
+	#
+	# Goes to DeployCore's own api service now, NOT straight to rustdesk -
+	# confirmed live that rustdesk-api's raw response here hands back
+	# id_server with RUSTDESK_RELAY_HOST's hostname baked in unconditionally,
+	# which webclient2's own JS combines with the CURRENT PAGE's port to
+	# build its wss:// rendezvous URL. That's fine for an operator reaching
+	# DeployCore through RUSTDESK_RELAY_HOST itself, but silently
+	# unconnectable for anyone going through a different address (a port
+	# forward, alternate DNS name, VPN/NAT path) - the resulting host:port
+	# combination was never valid for either address. See
+	# remote_desktop.proxy_shared_peer for the actual rewrite (swaps
+	# id_server's hostname for whatever host this specific request came in
+	# on) and managed_hosts.py's shared_peer_proxy for the thin route
+	# wrapping it.
 	handle /api/shared-peer {
-		reverse_proxy rustdesk:21114
+		reverse_proxy api:8000
 	}
 
 	# The actual RustDesk protocol connection (ID/rendezvous + relay), once
