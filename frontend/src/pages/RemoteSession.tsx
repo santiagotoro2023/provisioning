@@ -15,6 +15,24 @@ import { useOrg } from "../state/org";
 // STATE_CONNECTED, the only one this page acts on.
 const GUAC_STATE_CONNECTED = 3;
 
+// guacamole-common-js is an older CommonJS/UMD package - never actually
+// verified at runtime through this project's own bundler (no working `npm
+// install` in the environment this was written in, only a hand-written
+// ambient .d.ts that satisfies the TYPE checker, which says nothing about
+// what the ACTUAL JS module shape is once esbuild/Vite applies its own
+// CJS interop for `import * as X`). Some bundlers spread a CJS module's
+// own exports directly onto the namespace object (what every call site
+// below assumes); others nest them under a synthetic `.default` instead -
+// a well-known interop inconsistency for this exact import style, not
+// specific to this package. Resolved defensively here, once, rather than
+// assumed at every call site - if this guess is also wrong, the try/catch
+// in connectRdp below at least reports THAT clearly instead of the same
+// unhelpful generic error a second time.
+const GuacamoleLib: typeof Guacamole =
+  (Guacamole as unknown as { WebSocketTunnel?: unknown }).WebSocketTunnel
+    ? Guacamole
+    : ((Guacamole as unknown as { default?: typeof Guacamole }).default ?? Guacamole);
+
 interface IceServersResponse {
   turn_host: string;
   turn_port: number;
@@ -261,58 +279,66 @@ export default function RemoteSession() {
 
   const connectRdp = useCallback(
     (hostId: string) => {
-      const wsProto = location.protocol === "https:" ? "wss" : "ws";
-      const token = getToken() ?? "";
-      const width = viewerRef.current?.clientWidth || 1280;
-      const height = viewerRef.current?.clientHeight || 800;
-      const tunnel = new Guacamole.WebSocketTunnel(
-        `${wsProto}://${location.host}/api/organizations/${selectedOrgId}/managed-hosts/${hostId}/session` +
-          `?mode=connect&token=${encodeURIComponent(token)}&w=${width}&h=${height}`
-      );
-      const client = new Guacamole.Client(tunnel);
-      guacClientRef.current = client;
+      // Its own try/catch, not left to the generic one in connect() below -
+      // if guacamole-common-js's runtime shape guess (GuacamoleLib, above)
+      // is ALSO wrong, this reports that specifically instead of falling
+      // through to "Could not start the remote session." a second time.
+      try {
+        const wsProto = location.protocol === "https:" ? "wss" : "ws";
+        const token = getToken() ?? "";
+        const width = viewerRef.current?.clientWidth || 1280;
+        const height = viewerRef.current?.clientHeight || 800;
+        const tunnel = new GuacamoleLib.WebSocketTunnel(
+          `${wsProto}://${location.host}/api/organizations/${selectedOrgId}/managed-hosts/${hostId}/session` +
+            `?mode=connect&token=${encodeURIComponent(token)}&w=${width}&h=${height}`
+        );
+        const client = new GuacamoleLib.Client(tunnel);
+        guacClientRef.current = client;
 
-      client.onerror = (status) => setError(status.message || "The remote desktop session failed.");
-      client.onstatechange = (state) => {
-        if (state === GUAC_STATE_CONNECTED) setSessionReady(true);
-      };
-      client.onclipboard = (stream, mimetype) => {
-        if (!mimetype.startsWith("text/")) return;
-        const reader = new Guacamole.StringReader(stream);
-        let text = "";
-        reader.ontext = (chunk) => {
-          text += chunk;
+        client.onerror = (status) => setError(status.message || "The remote desktop session failed.");
+        client.onstatechange = (state) => {
+          if (state === GUAC_STATE_CONNECTED) setSessionReady(true);
         };
-        reader.onend = () => {
-          navigator.clipboard.writeText(text).catch(() => {});
+        client.onclipboard = (stream, mimetype) => {
+          if (!mimetype.startsWith("text/")) return;
+          const reader = new GuacamoleLib.StringReader(stream);
+          let text = "";
+          reader.ontext = (chunk) => {
+            text += chunk;
+          };
+          reader.onend = () => {
+            navigator.clipboard.writeText(text).catch(() => {});
+          };
         };
-      };
 
-      const display = client.getDisplay();
-      if (viewerRef.current) {
-        viewerRef.current.replaceChildren(display.getElement());
+        const display = client.getDisplay();
+        if (viewerRef.current) {
+          viewerRef.current.replaceChildren(display.getElement());
+        }
+        client.connect();
+
+        const displayElement = display.getElement();
+        const mouse = new GuacamoleLib.Mouse(displayElement);
+        mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (state) => client.sendMouseState(state);
+        guacMouseRef.current = mouse;
+
+        const keyboard = new GuacamoleLib.Keyboard(document);
+        keyboard.onkeydown = (keysym) => client.sendKeyEvent(1, keysym);
+        keyboard.onkeyup = (keysym) => client.sendKeyEvent(0, keysym);
+        guacKeyboardRef.current = keyboard;
+
+        const onPaste = (e: ClipboardEvent) => {
+          const text = e.clipboardData?.getData("text");
+          if (!text) return;
+          const stream = client.createClipboardStream("text/plain");
+          const writer = new GuacamoleLib.StringWriter(stream);
+          writer.sendText(text);
+          writer.sendEnd();
+        };
+        displayElement.addEventListener("paste", onPaste);
+      } catch (err) {
+        setError(`Connect failed to start: ${err instanceof Error ? err.message : String(err)}`);
       }
-      client.connect();
-
-      const displayElement = display.getElement();
-      const mouse = new Guacamole.Mouse(displayElement);
-      mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (state) => client.sendMouseState(state);
-      guacMouseRef.current = mouse;
-
-      const keyboard = new Guacamole.Keyboard(document);
-      keyboard.onkeydown = (keysym) => client.sendKeyEvent(1, keysym);
-      keyboard.onkeyup = (keysym) => client.sendKeyEvent(0, keysym);
-      guacKeyboardRef.current = keyboard;
-
-      const onPaste = (e: ClipboardEvent) => {
-        const text = e.clipboardData?.getData("text");
-        if (!text) return;
-        const stream = client.createClipboardStream("text/plain");
-        const writer = new Guacamole.StringWriter(stream);
-        writer.sendText(text);
-        writer.sendEnd();
-      };
-      displayElement.addEventListener("paste", onPaste);
     },
     [selectedOrgId]
   );

@@ -288,19 +288,29 @@ internal static class Win32Interop
     /// <summary>
     /// Every mode the primary adapter publishes, deduplicated by
     /// (width, height) - a given resolution commonly appears several times
-    /// over (once per supported refresh rate/color depth), and only the
-    /// pixel size matters for picking the nearest match.
+    /// over (once per supported refresh rate/color depth). Keeps each
+    /// candidate's FULL DevMode (not just its width/height) - confirmed live
+    /// on the first real test that rebuilding a fresh DevMode with only
+    /// DmPelsWidth/DmPelsHeight set (discarding the bits-per-pixel/frequency
+    /// EnumDisplaySettings actually reported) made ChangeDisplaySettingsEx
+    /// fail with DISP_CHANGE_FAILED (-1) for EVERY candidate, even ones
+    /// EnumDisplaySettings itself had just reported as valid - VMware's SVGA
+    /// driver evidently doesn't accept a partially-specified mode the way
+    /// some physical-hardware drivers tolerate. Passing back the exact
+    /// struct the driver itself produced is what actually needs to happen -
+    /// picking the "closest" one is still ours to decide, but applying it
+    /// isn't ours to reconstruct from scratch.
     /// </summary>
-    private static List<(int Width, int Height)> EnumerateSupportedResolutions()
+    private static List<DevMode> EnumerateSupportedResolutions()
     {
-        var seen = new HashSet<(int, int)>();
+        var seen = new Dictionary<(int, int), DevMode>();
         var mode = new DevMode { DmSize = (short)Marshal.SizeOf<DevMode>() };
         for (var i = 0; EnumDisplaySettings(null, i, ref mode); i++)
         {
-            seen.Add((mode.DmPelsWidth, mode.DmPelsHeight));
+            seen[(mode.DmPelsWidth, mode.DmPelsHeight)] = mode;
             mode = new DevMode { DmSize = (short)Marshal.SizeOf<DevMode>() };
         }
-        return seen.ToList();
+        return seen.Values.ToList();
     }
 
     /// <summary>
@@ -310,28 +320,31 @@ internal static class Win32Interop
     /// against the REAL modes this specific machine's adapter actually
     /// supports rather than a hardcoded guess list, and never larger than
     /// requested in either dimension (matches the same "never request bigger
-    /// than the viewport" rule).
+    /// than the viewport" rule). Returns the winning candidate's FULL,
+    /// untouched DevMode - see EnumerateSupportedResolutions's own comment
+    /// on why that matters.
     /// </summary>
-    private static (int Width, int Height)? FindNearestResolution(int targetWidth, int targetHeight)
+    private static DevMode? FindNearestResolution(int targetWidth, int targetHeight)
     {
         var candidates = EnumerateSupportedResolutions();
         if (candidates.Count == 0) return null;
 
         var targetAspect = (double)targetWidth / targetHeight;
-        (int Width, int Height)? best = null;
+        DevMode? best = null;
         var bestScore = double.MaxValue;
-        foreach (var (w, h) in candidates)
+        foreach (var mode in candidates)
         {
+            int w = mode.DmPelsWidth, h = mode.DmPelsHeight;
             if (w > targetWidth || h > targetHeight) continue;
             var aspectDiff = Math.Abs((double)w / h - targetAspect);
             var areaDiff = (double)(targetWidth * targetHeight - w * h) / (targetWidth * targetHeight);
             var score = aspectDiff * 5 + areaDiff;
-            if (score < bestScore) { bestScore = score; best = (w, h); }
+            if (score < bestScore) { bestScore = score; best = mode; }
         }
         // Nothing fit under the target (a very small requested viewport) -
         // fall back to the smallest available mode rather than refusing to
         // change resolution at all.
-        return best ?? candidates.OrderBy(c => c.Width * c.Height).FirstOrDefault();
+        return best ?? candidates.OrderBy(c => c.DmPelsWidth * c.DmPelsHeight).FirstOrDefault();
     }
 
     /// <summary>
@@ -351,18 +364,15 @@ internal static class Win32Interop
             return null;
         }
 
-        var (width, height) = nearest.Value;
+        var mode = nearest.Value;
+        var width = mode.DmPelsWidth;
+        var height = mode.DmPelsHeight;
         var current = GetPrimaryScreenSize();
         if (current == (width, height))
             return current; // already there - ChangeDisplaySettingsEx is a real mode switch, not a free no-op to repeat
 
-        var mode = new DevMode
-        {
-            DmSize = (short)Marshal.SizeOf<DevMode>(),
-            DmPelsWidth = width,
-            DmPelsHeight = height,
-            DmFields = DmPelsWidth | DmPelsHeight,
-        };
+        // mode is EnumDisplaySettings's own struct, DmFields and all - NOT
+        // rebuilt from just width/height (see EnumerateSupportedResolutions).
         var result = ChangeDisplaySettingsEx(null, ref mode, IntPtr.Zero, CdsDynamicOnly, IntPtr.Zero);
         if (result != DisplayChangeSuccessful)
         {

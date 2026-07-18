@@ -45,7 +45,14 @@ internal sealed class ShadowSession(string sessionId, AgentConfig config, Contro
     private RTCPeerConnection? _pc;
     private RTCDataChannel? _dataChannel;
 
-    private Process? _ffmpeg;
+    // NOT a Process object - ffmpeg is launched into the active console
+    // session via SessionCapture (Session 0, where this service itself
+    // runs, has no access to the real interactive desktop at all - see that
+    // class's own doc comment), which returns only a process id, not a
+    // System.Diagnostics.Process. Process.GetProcessById(pid) is enough to
+    // kill it later (see StopCapture).
+    private uint? _ffmpegProcessId;
+    private string? _captureFilePath;
     private CancellationTokenSource? _captureCts;
     private int _captureWidth;
     private int _captureHeight;
@@ -343,7 +350,7 @@ internal sealed class ShadowSession(string sessionId, AgentConfig config, Contro
 
     // --- ffmpeg capture process ---
 
-    private static string BuildFfmpegArgs(int? width, int? height)
+    private static string BuildFfmpegArgs(int? width, int? height, string outputPath)
     {
         // ponytail: `ddagrab` (DXGI Desktop Duplication - GPU-side, much
         // lower latency than gdigrab's GDI BitBlt-based capture) is the
@@ -354,11 +361,23 @@ internal sealed class ShadowSession(string sessionId, AgentConfig config, Contro
         // one) - not attempted blind in an environment where it can't be
         // tested against a real build. gdigrab ships in every ffmpeg build
         // and is good enough to prove the whole pipeline end to end first.
+        // NOTE: gdigrab and ddagrab are equally affected by the Session 0
+        // problem SessionCapture solves - this is a session-level
+        // restriction, not specific to either capture API.
         const string baseArgs = "-f gdigrab -framerate 30 -i desktop";
-        const string encodeArgs = "-c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -f h264 -";
+        // -y: overwrite the output file without an interactive prompt - now
+        // load-bearing, not cosmetic, since output is a real file path that
+        // may already exist from this session's own previous
+        // start/resize/restart (ffmpeg's default behavior otherwise waits on
+        // stdin for a y/N answer that will never come from a Windows
+        // service with no console - a real, silent hang this project has
+        // already been burned by once elsewhere, in the old RustDesk
+        // install script's own UAC-prompt hang).
+        const string encodeArgs = "-c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -f h264 -y";
+        var quotedOutput = $"\"{outputPath}\"";
 
         if (width is null || height is null)
-            return $"{baseArgs} {encodeArgs}";
+            return $"{baseArgs} {encodeArgs} {quotedOutput}";
 
         // gdigrab always captures at whatever the console's CURRENT native
         // size already is - by the time this runs, HandleResize has already
@@ -371,7 +390,7 @@ internal sealed class ShadowSession(string sessionId, AgentConfig config, Contro
         // so this scale filter is what guarantees the final encoded video is
         // always exactly w x h regardless of how close the underlying mode
         // switch landed.
-        return $"{baseArgs} -vf scale={width}:{height} {encodeArgs}";
+        return $"{baseArgs} -vf scale={width}:{height} {encodeArgs} {quotedOutput}";
     }
 
     private void StartCapture(int? width, int? height)
@@ -381,38 +400,39 @@ internal sealed class ShadowSession(string sessionId, AgentConfig config, Contro
         var bundled = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe");
         var ffmpegPath = File.Exists(bundled) ? bundled : "ffmpeg.exe"; // PATH fallback
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = ffmpegPath,
-            Arguments = BuildFfmpegArgs(width, height),
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+        // C:\ProgramData\DeployCore, NOT Path.GetTempPath() - this service
+        // runs as SYSTEM, but ffmpeg is launched into the ACTIVE CONSOLE
+        // SESSION under a different (the logged-in user's) token (see
+        // SessionCapture) - %TEMP% resolves to a DIFFERENT, per-account
+        // path for each of them, and the user's copy of ffmpeg has no
+        // reason to be able to write into SYSTEM's own temp directory.
+        // %ProgramData% is a single, fixed machine-wide path regardless of
+        // which account resolves it, and is already where this agent's own
+        // config file lives (see AgentConfig/Program.cs), so it's already
+        // known to be writable/reachable from both contexts.
+        var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "DeployCore");
+        Directory.CreateDirectory(dataDir);
+        _captureFilePath = Path.Combine(dataDir, $"shadow-{sessionId}.h264");
+        try { File.Delete(_captureFilePath); } catch { /* fine if it never existed */ }
 
+        var commandLine = $"\"{ffmpegPath}\" {BuildFfmpegArgs(width, height, _captureFilePath)}";
+        uint pid;
         try
         {
-            _ffmpeg = Process.Start(psi);
+            pid = SessionCapture.StartInActiveSession(commandLine, AppContext.BaseDirectory);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Shadow session {SessionId}: failed to start {FfmpegPath}.", sessionId, ffmpegPath);
+            logger.LogError(ex, "Shadow session {SessionId}: failed to launch ffmpeg into the active console session.", sessionId);
             return;
         }
 
-        if (_ffmpeg is null)
-        {
-            logger.LogError("Shadow session {SessionId}: ffmpeg did not start.", sessionId);
-            return;
-        }
-
+        _ffmpegProcessId = pid;
         _captureWidth = width ?? _nativeScreenSize.Width;
         _captureHeight = height ?? _nativeScreenSize.Height;
         _captureCts = new CancellationTokenSource();
 
-        _ = DrainStderrAsync(_ffmpeg, _captureCts.Token);
-        _ = ReadNalUnitsAsync(_ffmpeg, _captureCts.Token);
+        _ = TailCaptureFileAsync(_captureFilePath, _captureCts.Token);
     }
 
     private void StopCapture()
@@ -420,92 +440,171 @@ internal sealed class ShadowSession(string sessionId, AgentConfig config, Contro
         _captureCts?.Cancel();
         _captureCts = null;
 
-        if (_ffmpeg is { HasExited: false })
+        if (_ffmpegProcessId is { } pid)
         {
             try
             {
-                _ffmpeg.Kill(entireProcessTree: true);
+                using var proc = Process.GetProcessById((int)pid);
+                if (!proc.HasExited) proc.Kill(entireProcessTree: true);
+            }
+            catch (ArgumentException)
+            {
+                // GetProcessById throws when the pid no longer exists - it
+                // already exited on its own, not an error worth logging.
             }
             catch (Exception ex)
             {
                 logger.LogDebug(ex, "Shadow session {SessionId}: error stopping ffmpeg (likely already exiting).", sessionId);
             }
+            _ffmpegProcessId = null;
         }
-        _ffmpeg = null;
+
+        if (_captureFilePath is { } path)
+        {
+            try { File.Delete(path); } catch { /* best-effort cleanup */ }
+            _captureFilePath = null;
+        }
     }
 
-    private async Task ReadNalUnitsAsync(Process ffmpeg, CancellationToken ct)
+    /// <summary>
+    /// Reads NAL units from ffmpeg's OUTPUT FILE as it grows, not from a
+    /// redirected stdout pipe - see SessionCapture's own doc comment for
+    /// why (ffmpeg writing to a Windows named pipe as OUTPUT is a confirmed
+    /// unreliable pattern, and CreateProcessAsUser makes inheriting a piped
+    /// stdout handle across the session boundary its own separate risk this
+    /// project isn't taking on without being able to test it). The NAL
+    /// splitting / SendVideo logic below is otherwise UNCHANGED from the
+    /// stdout-based version.
+    /// </summary>
+    private async Task TailCaptureFileAsync(string path, CancellationToken ct)
     {
+        // ffmpeg (launched into a different session - see SessionCapture)
+        // needs a moment to actually start and create this file; a plain
+        // bounded retry loop is simpler and safer than a FileSystemWatcher
+        // for a single, already-known path. IOException here commonly means
+        // a sharing violation while ffmpeg still has the file open
+        // exclusively for creation - also worth retrying, not failing on.
+        FileStream? stream = null;
+        try
+        {
+            for (var attempt = 0; attempt < 100 && stream is null && !ct.IsCancellationRequested; attempt++)
+            {
+                try
+                {
+                    stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                }
+                catch (FileNotFoundException) { await Task.Delay(100, ct); }
+                catch (DirectoryNotFoundException) { await Task.Delay(100, ct); }
+                catch (IOException) { await Task.Delay(100, ct); }
+                catch (UnauthorizedAccessException) { await Task.Delay(100, ct); }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return; // session ended/resized while still waiting for the file to appear
+        }
+        catch (Exception ex)
+        {
+            // A catch-all here specifically because this method is invoked
+            // fire-and-forget (`_ = TailCaptureFileAsync(...)`) - an
+            // exception type this retry loop doesn't already expect would
+            // otherwise propagate out of an unobserved Task and vanish with
+            // NO log line at all, the exact silent-failure shape this
+            // project already found and fixed once this round (see
+            // SendVideo's own per-NAL try/catch above).
+            logger.LogWarning(ex, "Shadow session {SessionId}: unexpected error waiting for the capture file to appear.", sessionId);
+            return;
+        }
+        if (stream is null)
+        {
+            logger.LogWarning("Shadow session {SessionId}: capture file {Path} never appeared after 10s - ffmpeg likely failed to start in the target session (nobody logged in? see SessionCapture's own \"known limitation\" doc comment).", sessionId, path);
+            return;
+        }
+
         var splitter = new AnnexBNalSplitter();
         var buffer = new byte[65536];
-        var stream = ffmpeg.StandardOutput.BaseStream;
         long nalCount = 0, byteCount = 0;
         var lastProgressLog = DateTime.UtcNow;
         try
         {
-            while (!ct.IsCancellationRequested)
+            using (stream)
             {
-                var read = await stream.ReadAsync(buffer, ct);
-                if (read == 0) break; // ffmpeg exited / pipe closed
-
-                foreach (var nal in splitter.Append(buffer.AsSpan(0, read)))
+                while (!ct.IsCancellationRequested)
                 {
-                    if (_pc is null) continue;
-
-                    // SIPSorcery 6.2.3 (confirmed live via the first real CI
-                    // build, CS4008 "cannot await 'void'"): SendVideo is
-                    // synchronous, not awaitable - fixed here, not just
-                    // guessed at.
-                    //
-                    // Per-NAL try/catch, not just the outer one around this
-                    // whole loop: confirmed against SIPSorcery's own source
-                    // (MediaStream.GetSendingFormat, called internally by
-                    // SendVideo) that it can throw if no compatible format is
-                    // resolved yet - a real possibility right after
-                    // StartAsync, since capture starts immediately while the
-                    // SDP answer is still in flight over the signaling
-                    // round-trip. An unhandled exception here previously
-                    // propagated out of this whole loop's own try block,
-                    // permanently ending frame forwarding for the rest of
-                    // the session after the very first failure - "connects,
-                    // then black forever" is exactly what that looks like
-                    // from the browser side. Now it just skips that one NAL.
-                    try
+                    var read = await stream.ReadAsync(buffer, ct);
+                    if (read == 0)
                     {
-                        _pc.SendVideo(FrameDurationRtpUnits, nal);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogDebug(ex, "Shadow session {SessionId}: SendVideo failed for one NAL (skipping it).", sessionId);
+                        // Real end-of-file-SO-FAR, not "the writer closed
+                        // the pipe" - this is a growing FILE, not a pipe, so
+                        // 0 bytes just means nothing new has been written
+                        // yet. Keep polling rather than treating this as the
+                        // capture having ended (that was the actual bug
+                        // shape when this read stdout - see git history).
+                        await Task.Delay(20, ct);
                         continue;
                     }
 
-                    // ponytail: passes the full per-frame RTP duration on
-                    // EVERY NAL of a multi-NAL access unit (SPS/PPS/slice),
-                    // not just the last one - would over-advance
-                    // SIPSorcery's internal RTP timestamp for keyframes (3
-                    // NALs) versus regular frames (1 NAL). H264 decodability
-                    // never depends on RTP timestamps (only jitter-buffer
-                    // pacing does), so this trades perfectly smooth pacing
-                    // for a much simpler v1 - a real corner cut, named here
-                    // rather than glossed over. Upgrade path: parse the NAL
-                    // header type (low 5 bits of the first byte after the
-                    // start code) and only pass a nonzero duration on the
-                    // first VCL NAL (types 1/5) of each access unit, 0 on
-                    // SPS/PPS/SEI.
-                    nalCount++;
-                    byteCount += nal.Length;
-                }
+                    foreach (var nal in splitter.Append(buffer.AsSpan(0, read)))
+                    {
+                        if (_pc is null) continue;
 
-                // Added specifically because the first real end-to-end test
-                // had no way to tell "ffmpeg is producing nothing" apart
-                // from "frames are flowing but never rendering in the
-                // browser" - both look identical (black screen) from the
-                // browser side alone.
-                if (DateTime.UtcNow - lastProgressLog > TimeSpan.FromSeconds(5))
-                {
-                    logger.LogInformation("Shadow session {SessionId}: {NalCount} NAL units / {ByteCount} bytes sent to SIPSorcery so far.", sessionId, nalCount, byteCount);
-                    lastProgressLog = DateTime.UtcNow;
+                        // SIPSorcery 6.2.3 (confirmed live via the first
+                        // real CI build, CS4008 "cannot await 'void'"):
+                        // SendVideo is synchronous, not awaitable - fixed
+                        // here, not just guessed at.
+                        //
+                        // Per-NAL try/catch, not just the outer one around
+                        // this whole loop: confirmed against SIPSorcery's
+                        // own source (MediaStream.GetSendingFormat, called
+                        // internally by SendVideo) that it can throw if no
+                        // compatible format is resolved yet - a real
+                        // possibility right after StartAsync, since capture
+                        // starts immediately while the SDP answer is still
+                        // in flight over the signaling round-trip. An
+                        // unhandled exception here previously propagated
+                        // out of this whole loop's own try block,
+                        // permanently ending frame forwarding for the rest
+                        // of the session after the very first failure -
+                        // "connects, then black forever" is exactly what
+                        // that looks like from the browser side. Now it
+                        // just skips that one NAL.
+                        try
+                        {
+                            _pc.SendVideo(FrameDurationRtpUnits, nal);
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogDebug(ex, "Shadow session {SessionId}: SendVideo failed for one NAL (skipping it).", sessionId);
+                            continue;
+                        }
+
+                        // ponytail: passes the full per-frame RTP duration
+                        // on EVERY NAL of a multi-NAL access unit (SPS/PPS/
+                        // slice), not just the last one - would over-advance
+                        // SIPSorcery's internal RTP timestamp for keyframes
+                        // (3 NALs) versus regular frames (1 NAL). H264
+                        // decodability never depends on RTP timestamps (only
+                        // jitter-buffer pacing does), so this trades
+                        // perfectly smooth pacing for a much simpler v1 - a
+                        // real corner cut, named here rather than glossed
+                        // over. Upgrade path: parse the NAL header type (low
+                        // 5 bits of the first byte after the start code) and
+                        // only pass a nonzero duration on the first VCL NAL
+                        // (types 1/5) of each access unit, 0 on SPS/PPS/SEI.
+                        nalCount++;
+                        byteCount += nal.Length;
+                    }
+
+                    // Added specifically because the first real end-to-end
+                    // test had no way to tell "ffmpeg is producing nothing"
+                    // apart from "frames are flowing but never rendering in
+                    // the browser" - both look identical (black screen) from
+                    // the browser side alone.
+                    if (DateTime.UtcNow - lastProgressLog > TimeSpan.FromSeconds(5))
+                    {
+                        logger.LogInformation("Shadow session {SessionId}: {NalCount} NAL units / {ByteCount} bytes sent to SIPSorcery so far.", sessionId, nalCount, byteCount);
+                        lastProgressLog = DateTime.UtcNow;
+                    }
                 }
             }
         }
@@ -515,31 +614,7 @@ internal sealed class ShadowSession(string sessionId, AgentConfig config, Contro
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Shadow session {SessionId}: capture read loop ended.", sessionId);
-        }
-    }
-
-    private async Task DrainStderrAsync(Process ffmpeg, CancellationToken ct)
-    {
-        // ffmpeg logs its own progress/diagnostics to stderr by default.
-        // This MUST be actively read once redirected, or ffmpeg blocks the
-        // instant the OS pipe buffer fills - a service with no console has
-        // nowhere else for that output to go, so redirect-and-drain (logged
-        // at Debug) is the only safe option here, not a nicety.
-        try
-        {
-            var reader = ffmpeg.StandardError;
-            string? line;
-            while (!ct.IsCancellationRequested && (line = await reader.ReadLineAsync(ct)) is not null)
-                logger.LogDebug("ffmpeg[{SessionId}]: {Line}", sessionId, line);
-        }
-        catch (OperationCanceledException)
-        {
-            // expected
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Shadow session {SessionId}: ffmpeg stderr drain ended.", sessionId);
+            logger.LogWarning(ex, "Shadow session {SessionId}: capture tail loop ended.", sessionId);
         }
     }
 

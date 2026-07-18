@@ -58,6 +58,11 @@ namespace DeployCoreAgent
             // ShadowSession on the first "cad" message.
             Win32Interop.EnsureSoftwareSasGeneration(loggerFactory.CreateLogger("Win32Interop"));
 
+            // Same reasoning, same "ensure once at startup" pattern - see
+            // SessionCapture's own doc comment for why Shadow's capture
+            // needs this at all (Session 0 isolation).
+            SessionCapture.EnsureTcbPrivilege(loggerFactory.CreateLogger("SessionCapture"));
+
             AgentConfig config;
             try
             {
