@@ -114,7 +114,17 @@ if [ -z "$current_public_url" ] || [ "$current_public_url" = "http://localhost:8
 fi
 
 echo "Building and starting the stack..."
-docker compose up -d --build
+# -V (--renew-anon-volumes): the frontend's anonymous /app/node_modules
+# volume (docker-compose.yml's own comment on why it exists) otherwise
+# survives a rebuild untouched - confirmed live as a real failure mode: a
+# first run whose frontend image build gets cancelled partway (e.g. by an
+# unrelated service failing elsewhere in the same `--build`, as coturn's own
+# Dockerfile bug once did) can still leave that volume created-but-stale, and
+# every subsequent re-run of this "safe to re-run" script kept reusing that
+# stale, incomplete node_modules instead of the one actually baked into the
+# freshly rebuilt image - "Failed to resolve import" for whatever dependency
+# was added since, not a real code bug. -V makes a re-run actually re-run.
+docker compose up -d --build -V
 
 echo
 echo "Done. Open https://localhost to run the setup wizard."

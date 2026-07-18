@@ -208,7 +208,12 @@ run_update() {
   fi
 
   set_status restarting
-  if ! docker compose "${COMPOSE_ARGS[@]}" up -d --no-deps api worker frontend > /tmp/update.log 2>&1; then
+  # -V: same reason scripts/setup.sh now passes it - the frontend's
+  # anonymous /app/node_modules volume otherwise survives a rebuild
+  # untouched, so an update that adds/changes a frontend dependency would
+  # restart into the OLD node_modules, not the one the build just above
+  # actually produced.
+  if ! docker compose "${COMPOSE_ARGS[@]}" up -d --no-deps -V api worker frontend > /tmp/update.log 2>&1; then
     set_status failed "restart failed: $(tail -c 500 /tmp/update.log)"
     return
   fi
