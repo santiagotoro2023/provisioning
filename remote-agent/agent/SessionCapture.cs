@@ -17,39 +17,42 @@ namespace DeployCoreAgent;
 /// logged, because ffmpeg, launched via plain Process.Start from
 /// ShadowSession, inherited THIS SERVICE's own Session 0).
 ///
-/// SECOND REVISION, after the first fix's own fallback path turned out not
-/// to work on real hardware: the original "nobody logged in" fallback
-/// duplicated THIS SERVICE's own SYSTEM token and retargeted its
-/// TokenSessionId field via SetTokenInformation. That compiled, ran, and
-/// returned no error from CreateProcessAsUser - but ffmpeg's capture file
-/// never appeared (confirmed live via agent.log: "capture file never
-/// appeared after 10s" on every attempt) - a hand-constructed token that
-/// merely claims to belong to another session, with no real logon tied to
-/// it, apparently doesn't carry whatever the interactive window
-/// station/desktop actually checks for, even though the API calls
-/// themselves all report success.
+/// THIRD REVISION. The first fix (retarget this service's own SYSTEM
+/// token's session id via SetTokenInformation) compiled and ran with no
+/// error but never actually worked. The second fix (steal explorer.exe's or
+/// winlogon.exe's own token, target "winsta0\default", build a per-token
+/// environment block for the logged-in case) was built from a genuinely
+/// real reference (rustdesk/rustdesk's GetSessionUserTokenWin/
+/// LaunchProcessWin, src/platform/windows.cc) but STILL didn't work -
+/// ffmpeg kept dying before even writing its own -report file, on both the
+/// winlogon.exe and explorer.exe paths, environment block or not. The
+/// mistake: that C function has an "as_user"/"show" parameter pair this
+/// project inferred defaults for instead of tracing back to how
+/// rustdesk's OWN caller actually uses it for the exact same job (starting
+/// its screen-capture server process). Fetched src/platform/windows.rs
+/// directly and found the real call:
 ///
-/// Replaced with the mechanism a real, shipping remote-desktop product
-/// actually uses for exactly this (rustdesk/rustdesk's own
-/// src/platform/windows.cc, GetSessionUserTokenWin/LaunchProcessWin -
-/// fetched and reviewed directly, not reconstructed from memory, matching
-/// this project's own rule against guessing at Win32 internals a second
-/// time): find a process that is ALREADY genuinely, natively running IN the
-/// target session - explorer.exe if a user is logged in, or winlogon.exe
-/// otherwise (winlogon owns and renders the logon/lock screen, and exists
-/// in every session from the moment it's created, regardless of login
-/// state) - and steal ITS OWN process token directly via OpenProcessToken.
-/// That token is already legitimately, natively scoped to that session (it
-/// belongs to a process the OS itself put there), unlike a token merely
-/// patched to claim a session id. It's also already a PRIMARY token (a
-/// process's own token, unlike WTSQueryUserToken's impersonation-type
-/// result), so no DuplicateTokenEx step is needed before handing it to
-/// CreateProcessAsUser - rustdesk's own code doesn't do one either.
+///     let h = unsafe { LaunchProcessWin(wstr, session_id, FALSE, FALSE, &mut token_pid) };
 ///
-/// lpDesktop is unconditionally "winsta0\default" - confirmed against that
-/// same reference, which uses this even for the winlogon-token/no-login
-/// case, not a separate "winsta0\winlogon" target as the previous revision
-/// here guessed.
+/// as_user=FALSE and show=FALSE, unconditionally, for their own
+/// screen-capture server launch - not "explorer.exe when logged in", not
+/// "winsta0\default", not a custom environment block. Concretely:
+///   - as_user=FALSE -> GetLogonPid always looks for winlogon.exe, never
+///     explorer.exe, regardless of whether anyone is logged in.
+///   - show=FALSE -> LaunchProcessWin's own STARTUPINFO.lpDesktop is only
+///     ever set `if (show)` - with show=FALSE it stays unset entirely.
+///   - as_user=FALSE also means LaunchProcessWin's own
+///     `if (as_user) CreateEnvironmentBlock(...)` never runs either -
+///     lpEnvironment stays NULL.
+///
+/// This class now matches that exactly: always winlogon.exe's own token
+/// (even once someone's logged in - that's what the real reference does),
+/// lpDesktop left unset, no custom environment block. Per
+/// STARTUPINFO.lpDesktop's own documented behavior, leaving it NULL under
+/// CreateProcessAsUser does not mean "inherit this Session-0 service's own
+/// desktop" the way plain same-session CreateProcess would - the token
+/// being for a different session is what actually determines where the
+/// new process lands.
 ///
 /// Requires SeDebugPrivilege (see EnsureDebugPrivilege), not just
 /// SeTcbPrivilege - confirmed via rustdesk-org's own "impersonate-system"
@@ -70,7 +73,6 @@ internal static class SessionCapture
 {
     #region Win32 constants
 
-    private const int CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     private const int CREATE_NO_WINDOW = 0x08000000;
     private const uint INVALID_SESSION_ID = 0xFFFFFFFF;
     private static readonly IntPtr WTS_CURRENT_SERVER_HANDLE = IntPtr.Zero;
@@ -81,10 +83,7 @@ internal static class SessionCapture
 
     // Matches rustdesk/rustdesk's own GetSessionUserTokenWin exactly
     // (src/platform/windows.cc: OpenProcessToken(hProcess, TOKEN_ALL_ACCESS,
-    // ...)) rather than hand-picking a narrower access mask - this project
-    // already spent one real test cycle on a hand-constructed, unproven
-    // token mechanism that compiled fine and reported no error but never
-    // actually produced a working capture; not repeating that here.
+    // ...)) rather than hand-picking a narrower access mask.
     private const uint TOKEN_ALL_ACCESS = 0x000F01FF;
     private const uint PROCESS_QUERY_INFORMATION = 0x0400;
 
@@ -145,12 +144,6 @@ internal static class SessionCapture
         IntPtr hToken, string? lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes,
         IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment,
         string? lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
-
-    [DllImport("userenv.dll", SetLastError = true)]
-    private static extern bool CreateEnvironmentBlock(ref IntPtr lpEnvironment, IntPtr hToken, bool bInherit);
-
-    [DllImport("userenv.dll", SetLastError = true)]
-    private static extern bool DestroyEnvironmentBlock(IntPtr lpEnvironment);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
@@ -222,12 +215,11 @@ internal static class SessionCapture
     }
 
     /// <summary>
-    /// Needed to steal winlogon.exe's/explorer.exe's own token via
-    /// OpenProcessToken below - held by LocalSystem's token (which this
-    /// service runs as - New-Service with no -Credential in
-    /// remote_agent_install.ps1 defaults to LocalSystem) but not necessarily
-    /// ENABLED by default. Called once at agent startup (see Program.cs),
-    /// not per-session.
+    /// Needed to steal winlogon.exe's own token via OpenProcessToken below -
+    /// held by LocalSystem's token (which this service runs as -
+    /// New-Service with no -Credential in remote_agent_install.ps1 defaults
+    /// to LocalSystem) but not necessarily ENABLED by default. Called once
+    /// at agent startup (see Program.cs), not per-session.
     /// </summary>
     public static void EnsureTcbPrivilege(ILogger logger) => EnsurePrivilege(logger, "SeTcbPrivilege");
 
@@ -288,24 +280,21 @@ internal static class SessionCapture
     }
 
     /// <summary>
-    /// explorer.exe if someone's logged into this session (preferred - a
-    /// real logged-in user's own token), else winlogon.exe (nobody has
-    /// logged in - this is the process rendering the logon/lock screen
-    /// itself, and it exists in every session from the moment it's created,
-    /// regardless of login state). Returns that process's OWN token
-    /// directly via OpenProcessToken - see this class's own doc comment for
-    /// why this, and not a manufactured/retargeted token, is what actually
-    /// works. IntPtr.Zero if neither process could be found or opened.
+    /// Always winlogon.exe - matches rustdesk/rustdesk's own real call for
+    /// this exact job (launching its screen-capture server process) exactly:
+    /// LaunchProcessWin(cmd, session_id, /*as_user*/ FALSE, /*show*/ FALSE,
+    /// ...) - as_user=FALSE means GetLogonPid always looks for winlogon.exe,
+    /// never explorer.exe, regardless of login state. winlogon.exe exists in
+    /// every session from the moment it's created, whether or not anyone is
+    /// logged in. Returns that process's OWN token directly via
+    /// OpenProcessToken - already a primary token (unlike
+    /// WTSQueryUserToken's impersonation-type result), so no DuplicateTokenEx
+    /// step is needed before CreateProcessAsUser. IntPtr.Zero if it couldn't
+    /// be found or opened.
     /// </summary>
-    private static IntPtr FindSessionToken(uint sessionId, out bool foundLoggedInUser)
+    private static IntPtr FindWinlogonToken(uint sessionId)
     {
-        foundLoggedInUser = true;
-        var pid = FindProcessIdInSession(sessionId, "explorer");
-        if (pid == 0)
-        {
-            foundLoggedInUser = false;
-            pid = FindProcessIdInSession(sessionId, "winlogon");
-        }
+        var pid = FindProcessIdInSession(sessionId, "winlogon");
         if (pid == 0) return IntPtr.Zero;
 
         var hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, false, pid);
@@ -322,12 +311,15 @@ internal static class SessionCapture
 
     /// <summary>
     /// Launches <paramref name="commandLine"/> into the active console
-    /// session's own desktop - not this service's Session 0 - and returns
-    /// the new process's id (so the caller can later terminate it via the
-    /// normal System.Diagnostics.Process.GetProcessById/.Kill(), which works
-    /// on any process this SYSTEM-context service has rights over regardless
-    /// of who actually started it). Works whether or not anyone is logged
-    /// in - see this class's own doc comment for the mechanism.
+    /// session - not this service's Session 0 - and returns the new
+    /// process's id (so the caller can later terminate it via the normal
+    /// System.Diagnostics.Process.GetProcessById/.Kill(), which works on any
+    /// process this SYSTEM-context service has rights over regardless of who
+    /// actually started it). Works whether or not anyone is logged in - see
+    /// this class's own doc comment for the mechanism, and specifically why
+    /// lpDesktop and the environment block are both deliberately left unset
+    /// (matching rustdesk/rustdesk's own real, working call for this exact
+    /// job) rather than set to anything this project constructed itself.
     /// </summary>
     public static uint StartInActiveSession(string commandLine, string? workingDirectory, ILogger logger)
     {
@@ -337,65 +329,30 @@ internal static class SessionCapture
             throw new InvalidOperationException("No active console session found - is a display/console session even attached (e.g. the VM powered on)?");
         }
 
-        var hToken = FindSessionToken(sessionId, out var foundLoggedInUser);
+        var hToken = FindWinlogonToken(sessionId);
         if (hToken == IntPtr.Zero)
         {
             throw new InvalidOperationException(
-                $"Could not find explorer.exe or winlogon.exe running in session {sessionId}, or could not open its token " +
+                $"Could not find winlogon.exe running in session {sessionId}, or could not open its token " +
                 $"(0x{Marshal.GetLastWin32Error():X}) - is SeDebugPrivilege enabled? (see EnsureDebugPrivilege).");
         }
 
-        logger.LogInformation(
-            foundLoggedInUser
-                ? "Launching into session {SessionId} using explorer.exe's own token (a user is logged in)."
-                : "Launching into session {SessionId} using winlogon.exe's own token (nobody has logged in yet).",
-            sessionId);
+        logger.LogInformation("Launching into session {SessionId} using winlogon.exe's own token.", sessionId);
 
-        var pEnv = IntPtr.Zero;
         try
         {
-            // Only build a custom environment block for a REAL logged-in
-            // user's own token (explorer.exe) - confirmed against
-            // rustdesk/rustdesk's own LaunchProcessWin, which does exactly
-            // this and nothing else: for the winlogon.exe/no-login case, it
-            // leaves lpEnvironment NULL rather than calling
-            // CreateEnvironmentBlock at all. This was NOT matched here
-            // originally (this code called CreateEnvironmentBlock
-            // unconditionally for both cases) - confirmed live as the
-            // likely real cause of ffmpeg dying near-instantly with no
-            // -report file ever written (crashing before even reaching its
-            // own main(), the signature of a broken startup environment):
-            // winlogon.exe is not a normal interactively-logged-on user
-            // with a loaded profile, so CreateEnvironmentBlock building an
-            // environment "from its profile" plausibly produces something
-            // missing basics like PATH/SystemRoot that any child process's
-            // own CRT init needs. Passing NULL instead makes the new
-            // process inherit THIS SERVICE's own environment (a normal,
-            // complete SYSTEM environment, since this service starts
-            // normally under the SCM) - matches rustdesk's proven behavior
-            // exactly rather than trying to fix CreateEnvironmentBlock's
-            // input instead.
-            if (foundLoggedInUser)
-            {
-                if (!CreateEnvironmentBlock(ref pEnv, hToken, true))
-                {
-                    throw new InvalidOperationException($"CreateEnvironmentBlock failed (0x{Marshal.GetLastWin32Error():X}).");
-                }
-            }
-
-            var startupInfo = new STARTUPINFO
-            {
-                cb = Marshal.SizeOf<STARTUPINFO>(),
-                lpDesktop = "winsta0\\default",
-            };
-            // CREATE_UNICODE_ENVIRONMENT only makes sense (and is only set
-            // by rustdesk's own reference) when an actual Unicode
-            // environment block is being passed - meaningless, and not
-            // worth risking undefined behavior over, when pEnv is NULL.
-            var creationFlags = CREATE_NO_WINDOW | (pEnv != IntPtr.Zero ? CREATE_UNICODE_ENVIRONMENT : 0);
+            // cb is the only field STARTUPINFO needs set here - lpDesktop
+            // and every other field deliberately left at its zero/null
+            // default, matching rustdesk/rustdesk's own real call
+            // (LaunchProcessWin with show=FALSE, which never sets
+            // si.lpDesktop at all) rather than the "winsta0\default" this
+            // project set here previously, which - together with the
+            // custom environment block the previous revision also built -
+            // did not actually work on real hardware.
+            var startupInfo = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>() };
 
             if (!CreateProcessAsUser(hToken, null, commandLine, IntPtr.Zero, IntPtr.Zero, false,
-                    (uint)creationFlags, pEnv, workingDirectory, ref startupInfo, out var processInfo))
+                    CREATE_NO_WINDOW, IntPtr.Zero, workingDirectory, ref startupInfo, out var processInfo))
             {
                 throw new InvalidOperationException($"CreateProcessAsUser failed (0x{Marshal.GetLastWin32Error():X}).");
             }
@@ -406,7 +363,6 @@ internal static class SessionCapture
         }
         finally
         {
-            if (pEnv != IntPtr.Zero) DestroyEnvironmentBlock(pEnv);
             CloseHandle(hToken);
         }
     }
